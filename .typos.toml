@@ -1,9 +1,0 @@
-[files]
-extend-exclude = [
-    ".git/"
-]
-
-[default.extend-words]
-consts = "consts"
-cpy = "cpy"
-GOST = "GOST"
