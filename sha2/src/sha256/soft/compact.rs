@@ -1,7 +1,15 @@
 use crate::consts::K32;
 
 fn compress_u32(state: &mut [u32; 8], mut block: [u32; 16]) {
-    let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = *state;
+    // https://github.com/cryspen/hax/issues/804
+    let mut a = state[0];
+    let mut b = state[1];
+    let mut c = state[2];
+    let mut d = state[3];
+    let mut e = state[4];
+    let mut f = state[5];
+    let mut g = state[6];
+    let mut h = state[7];
 
     for i in 0..64 {
         let w = if i < 16 {

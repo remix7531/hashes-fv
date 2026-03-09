@@ -16,31 +16,19 @@ including SHA-224, SHA-256, SHA-384, and SHA-512.
 """
 
 [dependencies]
-digest = "0.11"
 cfg-if = "1"
 
-[target.'cfg(any(target_arch = "aarch64", target_arch = "x86_64", target_arch = "x86"))'.dependencies]
-cpufeatures = "0.3"
-
 [dev-dependencies]
-digest = { version = "0.11", features = ["dev"] }
 hex-literal = "1"
 
 [features]
-default = ["alloc", "oid"]
-alloc = ["digest/alloc"]
-zeroize = ["digest/zeroize"]
-oid = ["digest/oid"]
-
-[lints.rust.unexpected_cfgs]
-level = "warn"
-check-cfg = [
-    'cfg(sha2_backend, values("soft", "riscv-zknh"))',
-    'cfg(sha2_256_backend, values("aarch64-sha2", "soft", "riscv-zknh", "x86-sha"))',
-    'cfg(sha2_512_backend, values("aarch64-sha3", "soft", "riscv-zknh", "x86-avx2"))',
-    'cfg(sha2_backend_soft, values("compact"))',
-    'cfg(sha2_backend_riscv_zknh, values("compact"))',
-]
+default = ["sha256", "sha512"]
+sha256 = []
+sha256_224 = []
+sha512 = []
+sha512_224 = []
+sha512_256 = []
+sha512_384 = []
 
 [package.metadata.docs.rs]
 all-features = true
