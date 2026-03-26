@@ -3,11 +3,18 @@
 #![warn(missing_docs, unreachable_pub)]
 #![allow(clippy::needless_range_loop)]
 
+#[cfg(hax)]
+use hax_lib::ToInt;
+
 #[rustfmt::skip]
 mod consts;
 
 #[cfg(any(feature = "sha256", feature = "sha256_224"))]
 mod sha256;
+
+#[cfg(all(feature = "compress", any(feature = "sha256", feature = "sha256_224")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "compress")))]
+pub use sha256::compress256;
 
 #[cfg(any(
     feature = "sha512",
@@ -17,31 +24,60 @@ mod sha256;
 ))]
 mod sha512;
 
+#[cfg(all(
+    feature = "compress",
+    any(
+        feature = "sha512",
+        feature = "sha512_224",
+        feature = "sha512_256",
+        feature = "sha512_384"
+    )
+))]
+#[cfg_attr(docsrs, doc(cfg(feature = "compress")))]
+pub use sha512::compress512;
+
 // ---------------------------------------------------------------------------
 // Inner helpers
 // ---------------------------------------------------------------------------
 
 #[cfg(any(feature = "sha256", feature = "sha256_224"))]
+#[cfg_attr(hax, hax_lib::fstar::options("--z3rlimit 60 --split_queries always"))]
+#[cfg_attr(hax,
+    hax_lib::requires(data.len().to_int() <= (u64::MAX / 8).to_int())
+)]
 fn sha256_inner(iv: [u32; 8], data: &[u8]) -> [u8; 32] {
     let mut state = iv;
     // >> 6 is equivalent to / 64
     // & 63 is equivalent to % 64
     let blocks: usize = data.len() >> 6;
     let remaining: usize = data.len() & 63;
+
+    #[cfg(hax)]
+    hax_lib::fstar!("logand_mask_lemma #USIZE remaining 6");
+
+    // Process complete blocks
     for i in 0..blocks {
         let block: &[u8; 64] = data[i * 64..][..64].try_into().unwrap();
         sha256::compress256(&mut state, &[*block]);
     }
+
+    // Process final block with padding
     let total_bits = (data.len() as u64) << 3;
     let mut final_block: [u8; 64] = [0u8; 64];
     final_block[..remaining].copy_from_slice(&data[blocks * 64..]);
     final_block[remaining] = 0x80;
+
+    // If we don't have room for the length, we need two blocks
     if remaining >= 56 {
         sha256::compress256(&mut state, &[final_block]);
         final_block = [0u8; 64];
     }
+
+    // Append length in bits as big-endian u64
     final_block[56..64].copy_from_slice(&total_bits.to_be_bytes());
     sha256::compress256(&mut state, &[final_block]);
+
+    // Convert state to output bytes
     let mut out = [0u8; 32];
     for i in 0..8 {
         let bytes = state[i].to_be_bytes();
@@ -59,26 +95,43 @@ fn sha256_inner(iv: [u32; 8], data: &[u8]) -> [u8; 32] {
     feature = "sha512_256",
     feature = "sha512_384"
 ))]
+#[cfg_attr(hax, hax_lib::fstar::options("--z3rlimit 60 --split_queries always"))]
+#[cfg_attr(hax,
+    hax_lib::requires(data.len().to_int() <= (u64::MAX / 8).to_int())
+)]
 fn sha512_inner(iv: [u64; 8], data: &[u8]) -> [u8; 64] {
     let mut state = iv;
     // >> 7 is equivalent to / 128
     // & 127 is equivalent to % 128
     let blocks: usize = data.len() >> 7;
     let remaining: usize = data.len() & 127;
+
+    #[cfg(hax)]
+    hax_lib::fstar!("logand_mask_lemma #USIZE remaining 7");
+
+    // Process complete blocks
     for i in 0..blocks {
         let block: &[u8; 128] = data[i * 128..][..128].try_into().unwrap();
         sha512::compress512(&mut state, &[*block]);
     }
+
+    // Process final block with padding
     let total_bits = (data.len() as u128) << 3;
     let mut final_block: [u8; 128] = [0u8; 128];
     final_block[..remaining].copy_from_slice(&data[blocks * 128..]);
     final_block[remaining] = 0x80;
+
+    // If we don't have room for the length, we need two blocks
     if remaining >= 112 {
         sha512::compress512(&mut state, &[final_block]);
         final_block = [0u8; 128];
     }
+
+    // Append length in bits as big-endian u128
     final_block[112..128].copy_from_slice(&total_bits.to_be_bytes());
     sha512::compress512(&mut state, &[final_block]);
+
+    // Convert state to output bytes
     let mut out = [0u8; 64];
     for i in 0..8 {
         let bytes = state[i].to_be_bytes();
@@ -110,6 +163,9 @@ fn sha512_inner(iv: [u64; 8], data: &[u8]) -> [u8; 64] {
 /// assert_eq!(hash, hex!("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"));
 /// ```
 #[cfg(feature = "sha256")]
+#[cfg_attr(hax,
+    hax_lib::requires(data.len().to_int() <= (u64::MAX / 8).to_int())
+)]
 pub fn sha256(data: &[u8]) -> [u8; 32] {
     sha256_inner(consts::H256_256, data)
 }
@@ -126,6 +182,9 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 /// assert_eq!(hash, hex!("23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7"));
 /// ```
 #[cfg(feature = "sha256_224")]
+#[cfg_attr(hax,
+    hax_lib::requires(data.len().to_int() <= (u64::MAX / 8).to_int())
+)]
 pub fn sha224(data: &[u8]) -> [u8; 28] {
     let full = sha256_inner(consts::H256_224, data);
     full[..28].try_into().unwrap()
@@ -146,6 +205,9 @@ pub fn sha224(data: &[u8]) -> [u8; 28] {
 /// ));
 /// ```
 #[cfg(feature = "sha512")]
+#[cfg_attr(hax,
+    hax_lib::requires(data.len().to_int() <= (u64::MAX / 8).to_int())
+)]
 pub fn sha512(data: &[u8]) -> [u8; 64] {
     sha512_inner(consts::H512_512, data)
 }
@@ -162,6 +224,9 @@ pub fn sha512(data: &[u8]) -> [u8; 64] {
 /// assert_eq!(hash, hex!("4634270f707b6a54daae7530460842e20e37ed265ceee9a43e8924aa"));
 /// ```
 #[cfg(feature = "sha512_224")]
+#[cfg_attr(hax,
+    hax_lib::requires(data.len().to_int() <= (u64::MAX / 8).to_int())
+)]
 pub fn sha512_224(data: &[u8]) -> [u8; 28] {
     let full = sha512_inner(consts::H512_224, data);
     full[..28].try_into().unwrap()
@@ -179,6 +244,9 @@ pub fn sha512_224(data: &[u8]) -> [u8; 28] {
 /// assert_eq!(hash, hex!("53048e2681941ef99b2e29b76b4c7dabe4c2d0c634fc6d46e0e2f13107e7af23"));
 /// ```
 #[cfg(feature = "sha512_256")]
+#[cfg_attr(hax,
+    hax_lib::requires(data.len().to_int() <= (u64::MAX / 8).to_int())
+)]
 pub fn sha512_256(data: &[u8]) -> [u8; 32] {
     let full = sha512_inner(consts::H512_256, data);
     full[..32].try_into().unwrap()
@@ -199,6 +267,9 @@ pub fn sha512_256(data: &[u8]) -> [u8; 32] {
 /// ));
 /// ```
 #[cfg(feature = "sha512_384")]
+#[cfg_attr(hax,
+    hax_lib::requires(data.len().to_int() <= (u64::MAX / 8).to_int())
+)]
 pub fn sha384(data: &[u8]) -> [u8; 48] {
     let full = sha512_inner(consts::H512_384, data);
     full[..48].try_into().unwrap()

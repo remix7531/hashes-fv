@@ -3,3 +3,5 @@ target/
 */*/target/
 */Cargo.lock
 flake.lock
+**/extraction/*.fst
+**/extraction/*.fsti

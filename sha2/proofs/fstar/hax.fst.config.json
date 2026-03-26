@@ -1,0 +1,15 @@
+{
+  "fstar_exe": "fstar.exe",
+  "options": [
+      "--warn_error",
+      "-274-321-331",
+      "--query_stats"
+  ],
+  "include_dirs": [
+    "${HAX_LIB}/proof-libs/fstar/core",
+    "${HAX_LIB}/proof-libs/fstar/rust_primitives",
+    "${HAX_LIB}/proofs/fstar/extraction",
+    "${FSTAR_HOME}/lib/fstar",
+    "extraction"
+  ]
+}

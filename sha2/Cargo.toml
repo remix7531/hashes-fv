@@ -18,17 +18,27 @@ including SHA-224, SHA-256, SHA-384, and SHA-512.
 [dependencies]
 cfg-if = "1"
 
+[target.'cfg(hax)'.dependencies]
+hax-lib = { git = "https://github.com/cryspen/hax", tag = "hax-lib-v0.3.5" }
+
 [dev-dependencies]
 hex-literal = "1"
 
 [features]
 default = ["sha256", "sha512"]
+compress = []
 sha256 = []
 sha256_224 = []
 sha512 = []
 sha512_224 = []
 sha512_256 = []
 sha512_384 = []
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = [
+    'cfg(hax)',
+]
 
 [package.metadata.docs.rs]
 all-features = true
