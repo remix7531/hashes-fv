@@ -3,5 +3,10 @@ target/
 */*/target/
 */Cargo.lock
 flake.lock
-**/extraction/*.fst
-**/extraction/*.fsti
+.cargo/
+
+# Aeneas + Lean build artifacts
+**/.lake/
+# Aeneas-extracted package — wiped by `make clean`, recreated by `make extract`.
+**/proofs/lean/Extraction/
+**/*.llbc

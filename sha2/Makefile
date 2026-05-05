@@ -1,103 +1,66 @@
-# Makefile for extracting F* from SHA2 Rust implementation using hax
+# Makefile for verifying SHA-2 with Aeneas + Lean.
 #
 # Targets:
-#   make extract - Extract F* code from Rust
-#   make prove   - Verify the extracted F* code
-#   make lax     - Lax check the extracted F* code
-#   make clean   - Clean up generated files
+#   make extract - Run Charon (Rust → LLBC) and Aeneas (LLBC → Lean)
+#   make prove   - Build the Lean proofs (lake build)
+#   make clean   - Remove generated LLBC and Lean files
+#
+# The Rust source is left untouched: Aeneas reads it as-is.
 
-# Directories
-PROOF_DIR            := proofs/fstar
-EXTRACTION_DIR       := $(PROOF_DIR)/extraction
-CACHE_DIR            := .fstar-cache/checked
-HINT_DIR             := .fstar-cache/hints
+LEAN_DIR        := proofs/lean
+EXTRACT_SUBDIR  := Extraction
+LEAN_PKG        := $(LEAN_DIR)/$(EXTRACT_SUBDIR)
+LLBC            := $(LEAN_DIR)/sha2.llbc
 
-# F* configuration. Set HAX_LIB to point at a hax checkout (or rely on
-# the dev shell exporting it).
-HAX_LIB        ?= $(error HAX_LIB is not set — point it at a hax checkout, e.g. via the nix devShell)
-FSTAR_BIN      ?= fstar.exe
-FSTAR_FLAGS     = \
-	--warn_error -321-331-241-274-239-271-242 \
-	--silent \
-	--cache_dir $(CACHE_DIR) \
-	--hint_dir $(HINT_DIR) \
-	--include $(EXTRACTION_DIR) \
-	--include $(HAX_LIB)/proof-libs/fstar/core \
-	--include $(HAX_LIB)/proof-libs/fstar/rust_primitives \
-	--include $(HAX_LIB)/proofs/fstar/extraction
+CHARON_OPTIONS  := --preset=aeneas \
+	--rustc-arg=--allow=unused
+AENEAS_OPTIONS  := -backend lean -split-files -abort-on-error \
+	-subdir $(EXTRACT_SUBDIR) -namespace $(EXTRACT_SUBDIR)
 
-FSTAR := $(FSTAR_BIN) $(FSTAR_FLAGS)
+# Translate the full SHA-256 path: the public `sha256` and `sha224` entry
+# points in lib.rs, plus everything they call.
+START_FROM      := \
+	--start-from sha2::sha256
 
-CARGO_FEATURES := -C --no-default-features --features sha256 \;
-RUSTFLAGS := --cfg sha2_backend=\"soft-compact\"
+CARGO_FEATURES  := --no-default-features --features "sha256"
 
 # Colors for output
 BLUE   := \033[34m
 BBLUE  := \033[1;34m
 RESET  := \033[0m
-RED    := \033[31m
 GREEN  := \033[32m
 
-.PHONY: all extract prove lax clean help vscode
+.PHONY: all extract prove clean help
 
-# Default target
-all: extract
+all: extract prove
 
 help:
-	@echo "SHA2 F* Extraction Makefile"
+	@echo "SHA-2 Aeneas+Lean verification Makefile"
 	@echo ""
 	@echo "Available targets:"
-	@printf "  $(BLUE)extract$(RESET)  - Extract F* code from Rust (SHA256 only, no dependencies)\n"
-	@printf "  $(BLUE)prove$(RESET)    - Verify all extracted F* modules\n"
-	@printf "  $(BLUE)lax$(RESET)      - Lax-check all extracted F* modules\n"
-	@printf "  $(BLUE)clean$(RESET)    - Remove all generated files\n"
+	@printf "  $(BLUE)extract$(RESET)  - Run Charon then Aeneas to regenerate Lean files\n"
+	@printf "  $(BLUE)prove$(RESET)    - lake build the Lean proofs\n"
+	@printf "  $(BLUE)clean$(RESET)    - Remove generated files\n"
 	@printf "  $(BLUE)help$(RESET)     - Show this help message\n"
 
-# Extract F* code from Rust using hax
+# Step 1: Charon translates Rust → LLBC
+# Step 2: Aeneas translates LLBC → Lean
 extract:
-	@printf "$(BBLUE)[EXTRACT]$(RESET) Extracting F* from Rust code (soft backend)...\n"
-	@mkdir -p $(EXTRACTION_DIR)
-	@RUSTFLAGS="$(RUSTFLAGS)" cargo hax $(CARGO_FEATURES) into fstar
-	@printf "$(GREEN)✓$(RESET) Extraction complete! Files are in $(EXTRACTION_DIR)\n"
+	@printf "$(BBLUE)[CHARON]$(RESET) Translating Rust → LLBC...\n"
+	@mkdir -p $(LEAN_DIR)
+	charon cargo $(CHARON_OPTIONS) --dest-file $(abspath $(LLBC)) $(START_FROM) -- $(CARGO_FEATURES)
+	@printf "$(BBLUE)[AENEAS]$(RESET) Translating LLBC → Lean...\n"
+	@mkdir -p $(LEAN_PKG)
+	aeneas $(LLBC) $(AENEAS_OPTIONS) -dest $(LEAN_DIR)
+	@printf "import Aeneas\n" > $(LEAN_PKG)/FunsExternal.lean
+	@printf "$(GREEN)✓$(RESET) Extraction complete. Generated files in $(LEAN_PKG)\n"
 
-# Verify the extracted F* code
 prove:
-	@printf "$(BBLUE)[VERIFY]$(RESET) Verifying extracted F* modules...\n"
-	@mkdir -p $(CACHE_DIR) $(HINT_DIR)
-	@if [ -z "$$(find $(EXTRACTION_DIR) -name '*.fst' -o -name '*.fsti')" ]; then \
-		echo "$(RED)Error: No F* files found in $(EXTRACTION_DIR)$(RESET)"; \
-		exit 1; \
-	fi
-	@for file in $(EXTRACTION_DIR)/*.fst $(EXTRACTION_DIR)/*.fsti; do \
-		if [ -f "$$file" ]; then \
-			printf "$(BLUE)[CHECK]$(RESET) $$(basename $$file)\n"; \
-			$(FSTAR) $$file || exit 1; \
-		fi; \
-	done
-	@printf "$(GREEN)✓$(RESET) All modules verified successfully!\n"
+	@printf "$(BBLUE)[LAKE]$(RESET) Building Lean proofs...\n"
+	cd $(LEAN_DIR) && lake build
+	@printf "$(GREEN)✓$(RESET) All proofs check.\n"
 
-# Lax check the extracted F* code
-lax:
-	@printf "$(BBLUE)[LAX]$(RESET) Lax-checking extracted F* modules...\n"
-	@mkdir -p $(CACHE_DIR) $(HINT_DIR)
-	@if [ -z "$$(find $(EXTRACTION_DIR) -name '*.fst' -o -name '*.fsti')" ]; then \
-		echo "$(RED)Error: No F* files found in $(EXTRACTION_DIR)$(RESET)"; \
-		exit 1; \
-	fi
-	@for file in $(EXTRACTION_DIR)/*.fst $(EXTRACTION_DIR)/*.fsti; do \
-		if [ -f "$$file" ]; then \
-			printf "$(BLUE)[LAX]$(RESET) $$(basename $$file)\n"; \
-			$(FSTAR) --lax $$file || exit 1; \
-		fi; \
-	done
-	@printf "$(GREEN)✓$(RESET) Lax check complete!\n"
-
-# Clean up generated files
 clean:
-	rm -f $(EXTRACTION_DIR)/*.fst $(EXTRACTION_DIR)/*.fsti
-
-# Advanced: Generate VSCode configuration
-vscode:
-	@printf "$(BLUE)[VSCODE]$(RESET) Generating VSCode F* configuration...\n"
-	@echo '{"fstar_exe": "$(FSTAR_BIN)", "include_dirs": ["$(EXTRACTION_DIR)"]}' | jq '.' > hax.fst.config.json
-	@printf "$(GREEN)✓$(RESET) Generated hax.fst.config.json\n"
+	rm -f $(LLBC)
+	rm -rf $(LEAN_PKG)
+	rm -rf $(LEAN_DIR)/.lake/build

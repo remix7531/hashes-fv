@@ -1,26 +1,39 @@
 {
   description = "rustcrypto-fv - RustCrypto formally-verified";
 
-  nixConfig = {
-    extra-substituters = [ "https://hax.cachix.org" ];
-    extra-trusted-public-keys = [ "hax.cachix.org-1:Oe3CtQr+8tJqpb+QNErHccOgkoA11sMm4/D4KHxOkY8=" ];
-  };
-
   inputs = {
-    flake-utils.url = "github:numtide/flake-utils";
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    rust-overlay.url = "github:oxalica/rust-overlay";
-    hax.url = "github:cryspen/hax/hax-lib-v0.3.6";
+    # Pinned to the immutable `sha2-fv-pin` tag (commit 3212a5fe) so the
+    # Aeneas/Charon binaries stay locked to the same revision as the
+    # Aeneas Lean library in sha2/proofs/lean/lake-manifest.json. The
+    # `develop` branch on remix7531/aeneas is force-pushed, so referencing
+    # it here would let the build break whenever upstream rewrites history.
+    aeneas.url = "github:remix7531/aeneas/sha2-fv-pin";
+    # Follow Aeneas's pinned nixpkgs and flake-utils so the toolchain shares
+    # one set of inputs. rust-overlay is fetched directly.
+    nixpkgs.follows = "aeneas/nixpkgs";
+    flake-utils.follows = "aeneas/flake-utils";
+    # Separate unstable channel for packages newer than Aeneas's pin —
+    # currently `lean-lsp-mcp` (and its `leanclient` dep), which landed in
+    # nixos-unstable but not yet in Aeneas's pinned nixpkgs.
+    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay, hax, ... } @ inputs:
+  outputs = { self, nixpkgs, nixpkgs-unstable, flake-utils, rust-overlay, aeneas, ... } @ inputs:
     flake-utils.lib.eachDefaultSystem (system:
       let
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs {
           inherit system overlays;
         };
+        pkgsUnstable = import nixpkgs-unstable { inherit system; };
         rustToolchain = pkgs.rust-bin.nightly.latest.default;
+
+        # MCP server — from nixos-unstable.
+        lean-lsp-mcp = pkgsUnstable.lean-lsp-mcp;
 
         # Packages from nixpkgs. Note: `cargo`, `clippy`, and `rustfmt` are
         # NOT listed here — they ship with `rustToolchain` (the rust-overlay
@@ -31,35 +44,35 @@
           cargo-expand
           cargo-flamegraph
           cargo-show-asm
+          elan
           jq
           pkg-config
           rust-analyzer
           rustToolchain
         ];
 
-        # Packages from flakes
+        # Packages from the Aeneas flake (Rust -> LLBC -> Lean toolchain)
         flakePackages = [
-          hax.inputs.fstar.packages.${system}.default  # Use F* from hax
-          hax.packages.${system}.default
+          aeneas.packages.${system}.aeneas
+          aeneas.packages.${system}.charon
         ];
       in
       {
         devShells.default = pkgs.mkShell {
-          buildInputs = nixpkgsPackages ++ flakePackages;
+          buildInputs = nixpkgsPackages ++ flakePackages ++ [ lean-lsp-mcp ];
 
           shellHook = ''
             export RUST_BACKTRACE=1
-            export FSTAR_HOME=${hax.inputs.fstar.packages.${system}.default}
-            export HAX_HOME=${hax.packages.${system}.default}
-            export HAX_LIB=${hax}/hax-lib
           '';
         };
 
-        packages.default = pkgs.rustPlatform.buildRustPackage {
-          pname = "rustcrypto-fv";
-          version = "0.1.0";
-          src = ./.;
-          cargoLock.lockFile = ./Cargo.lock;
+        packages = {
+          default = pkgs.rustPlatform.buildRustPackage {
+            pname = "rustcrypto-fv";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock.lockFile = ./Cargo.lock;
+          };
         };
       }
     );
