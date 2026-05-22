@@ -1,137 +1,90 @@
-# RustCrypto: SHA-2
+# RustCrypto: SHA-2 (formally verified)
 
-[![crate][crate-image]][crate-link]
-[![Docs][docs-image]][docs-link]
 ![Apache2/MIT licensed][license-image]
 ![Rust Version][rustc-image]
-[![Project Chat][chat-image]][chat-link]
-[![Build Status][build-image]][build-link]
 
-Pure Rust implementation of the [SHA-2] cryptographic hash algorithms.
+Pure Rust implementation of the [SHA-2] cryptographic hash algorithms, refactored for formal verification via [Aeneas] with the [Lean 4] backend.
 
-There are 6 standard algorithms specified in the SHA-2 standard: 
-`Sha224`, `Sha256`, `Sha512_224`, `Sha512_256`, `Sha384`, and `Sha512`.
+There are 6 standard algorithms specified in the SHA-2 standard: `Sha224`, `Sha256`, `Sha512_224`, `Sha512_256`, `Sha384`, and `Sha512`.
 
-Algorithmically, there are only 2 core algorithms: SHA-256 and SHA-512.
-All other algorithms are just applications of these with different initial
-hash values, and truncated to different digest bit lengths. The first two
-algorithms in the list are based on SHA-256, while the last four are based
-on SHA-512.
+Algorithmically, there are only 2 core algorithms: SHA-256 and SHA-512. All other algorithms are just applications of these with different initial hash values, and truncated to different digest bit lengths. The first two algorithms in the list are based on SHA-256, while the last four are based on SHA-512.
+
+## Design
+
+This fork simplifies the upstream `digest` trait-based API with a pure functional API. The implementation exposes standalone functions that take and return plain data, with no trait objects or generics, making them amenable to extraction by [Charon] (Rust → LLBC) and [Aeneas] (LLBC → Lean 4).
+
+Lean proofs can be found in the [`proofs/lean/`](proofs/lean/) directory. Run `make extract` to regenerate the Lean files from the Rust source, and `make prove` to typecheck the proofs.
+
+The verification chain spans three repos:
+
+```text
+RustCrypto Rust source    →  Charon  →  LLBC
+                          →  Aeneas  →  Lean monadic translation        (proofs/lean/Extraction/**)
+                          →  hand-written refinement                    (this repo) (proofs/lean/*.lean)
+                          ↔  bytewise reference impl + FIPS 180-4 spec  (remix7531/fips-180-4-lean)
+```
+
+Aeneas is consumed from the immutable [`remix7531/aeneas/sha2-fv-pin`](https://github.com/remix7531/aeneas/tree/sha2-fv-pin) tag (commit `3212a5fe`) until our fixes and feature PRs land upstream. Both `flake.nix` and `sha2/proofs/lean/lakefile.lean` pin this same tag so the Aeneas binary and Lean library stay on the same revision. The Lean proofs build on top of [Mathlib], pulled in transitively via the Aeneas Lean library.
+
+## Verification scope and trust base
+
+`make prove` checks the theorem `sha256_fips_correct`: the Aeneas-extracted `sha256` agrees with the FIPS 180-4 spec for any input shorter than 2⁶¹ bytes. The proof covers the `soft-compact` backend, which is the only backend retained in this fork (see [Backends](#backends) below). Only SHA-256 is verified — the other SHA-2 variants are not yet covered by a refinement proof.
+
+The pinned axiom set is `{propext, Classical.choice, Quot.sound, Aeneas.Std.core.fmt.Formatter}`. The first three are Lean's classical foundations; the fourth is Aeneas's opacity for `core::fmt::Formatter`, introduced because the source pulls in `Display`/`Debug` trait bounds that Aeneas does not look inside. See [`proofs/lean/AxiomCheck.lean`][axioms] for the live audit.
+
+[axioms]: proofs/lean/AxiomCheck.lean
 
 ## Examples
 
-### One-shot API
-
 ```rust
-use sha2::{Sha256, Digest};
+# #[cfg(feature = "sha256")] {
 use hex_literal::hex;
 
-let hash = Sha256::digest(b"hello world");
-assert_eq!(hash, hex!("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"));
+let hash256 = sha2::sha256(b"hello world");
+assert_eq!(hash256, hex!("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"));
+# }
 ```
 
-### Incremental API
-
 ```rust
-use sha2::{Sha256, Sha512, Digest};
+# #[cfg(feature = "sha512")] {
 use hex_literal::hex;
 
-let mut hasher = Sha256::new();
-hasher.update(b"hello ");
-hasher.update(b"world");
-let hash256 = hasher.finalize();
-
-assert_eq!(hash256, hex!("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"));
-
-let mut hasher = Sha512::new();
-hasher.update(b"hello world");
-let hash512 = hasher.finalize();
-
+let hash512 = sha2::sha512(b"hello world");
 assert_eq!(hash512, hex!(
     "309ecc489c12d6eb4cc40f50c902f2b4d0ed77ee511a7c7a9bcd3ca86d4cd86f"
     "989dd35bc5ff499670da34255b45b0cfd830e81f605dcf7dc5542e93ae9cd76f"
 ));
+# }
 ```
-
-See the [`digest`] crate docs for additional examples.
 
 ## Backends
 
-This crate supports a number of different backends.
-
-SHA-256 and SHA-512 backends:
-- `soft`: portable software implementation
-- `loongarch64-asm`: `asm!`-based implementation for LoongArch64 targets
-- `riscv-zknh`: uses the RISC-V `Zknh` scalar crypto extension. Experimental,
-  requires Nightly compiler and to enable `Zknh` and `Zbkb` (or `Zbb`)
-  target features at compile time.
-- `wasm32-simd128`: uses the WASM `simd128` extension.
-
-SHA-256 only backends:
-- `aarch64-sha2`: uses the AArch64 `sha2` extension.
-- `x86-sha`: uses the x86 SHA-NI extension.
-
-SHA-512 only backends:
-- `aarch64-sha3`: uses the AArch64 `sha3` extension.
-- `x86-avx2`: uses the x86 AVX2 extension.
-
-By default the following backends are used:
-- `target_arch = "aarch64"`: use `aarch64-sha2` and `aarch64-sha3` when the required
-  target features are detected at runtime; otherwise fall back to `soft`.
-- `any(target_arch = "x86", target_arch = "x86_64")`: use `x86-sha` and `x86-avx` when
-  the required target features are detected at runtime; otherwise fall back to `soft`.
-- `target_arch = "loongarch64"`: use `loongarch64-asm`.
-- `all(target_arch = "wasm32", target_feature = "simd128")`: use `wasm32-simd128`.
-- All other targets: use `soft`.
-
-You can force backend selection using the following configuration flags:
-- `sha2_backend`: select SHA-256 and SHA-512 backends. Supported values: `soft`, `riscv-zknh`.
-- `sha2_256_backend`: select SHA-256 backend. Supported values: `aarch64-sha2`, `soft`,
-  `riscv-zknh`, `x86-sha`.
-- `sha2_512_backend`: select SHA-512 backend. Supported values: `aarch64-sha3`, `soft`,
-  `riscv-zknh`, `x86-avx2`.
-
-They can be enabled using either the `RUSTFLAGS` environment variable
-(e.g. `RUSTFLAGS='--cfg sha2_backend="soft"'`), or by modifying your `.cargo/config.toml` file.
-
-Note that `sha2_backend` has higher priority than `sha2_256_backend` and `sha2_512_backend`.
-In other words, using `--cfg sha2_backend="soft" --cfg sha2_256_backend="x86_sha"` will result
-in selection of the software backend for SHA-256.
-
-By default `soft` and `riscv-zknh` backends unroll round loops, which results in a better
-performance at the cost of a bigger resulting binary. You can disable unrolling in the backends
-by using `sha2_backend_soft = "compact"` and `sha2_backend_riscv_zknh = "compact"` configuration
-flags respectively.
+This fork retains only the portable `soft-compact` backend. All
+hardware-specific backends (`aarch64-sha2`, `aarch64-sha3`, `x86-shani`,
+`x86-avx2`, `loongarch64-asm`, `riscv-zknh`, `riscv-zknh-compact`,
+`wasm32-simd`, and the unrolled `soft` variant) have been removed to
+narrow the verified surface.
 
 ## License
 
-The crate is licensed under either of:
+The crate (the Rust source under `src/` and `tests/`, plus build configuration) is licensed under either of:
 
 * [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
 * [MIT license](http://opensource.org/licenses/MIT)
 
-at your option.
+at your option, matching upstream RustCrypto.
 
-### Contribution
-
-Unless you explicitly state otherwise, any contribution intentionally submitted
-for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
-dual licensed as above, without any additional terms or conditions.
+The Lean refinement proofs in [`proofs/lean/`](proofs/lean/) are licensed under **GPL-3.0-or-later**, inherited from [`fips-180-4-lean`](https://github.com/remix7531/fips-180-4-lean); see [`proofs/lean/LICENSE`](proofs/lean/LICENSE). The Rust crate does not link the proof code at runtime, so consumers of the crate are not affected by GPL terms.
 
 [//]: # (badges)
 
-[crate-image]: https://img.shields.io/crates/v/sha2.svg
-[crate-link]: https://crates.io/crates/sha2
-[docs-image]: https://docs.rs/sha2/badge.svg
-[docs-link]: https://docs.rs/sha2/
 [license-image]: https://img.shields.io/badge/license-Apache2.0/MIT-blue.svg
 [rustc-image]: https://img.shields.io/badge/rustc-1.85+-blue.svg
-[chat-image]: https://img.shields.io/badge/zulip-join_chat-blue.svg
-[chat-link]: https://rustcrypto.zulipchat.com/#narrow/stream/260041-hashes
-[build-image]: https://github.com/RustCrypto/hashes/actions/workflows/sha2.yml/badge.svg?branch=master
-[build-link]: https://github.com/RustCrypto/hashes/actions/workflows/sha2.yml?query=branch:master
 
 [//]: # (general links)
 
 [SHA-2]: https://en.wikipedia.org/wiki/SHA-2
-[`digest`]: https://docs.rs/digest
+[Aeneas]: https://github.com/AeneasVerif/aeneas
+[Charon]: https://github.com/AeneasVerif/charon
+[Lean 4]: https://lean-lang.org/
+[Mathlib]: https://github.com/leanprover-community/mathlib4
