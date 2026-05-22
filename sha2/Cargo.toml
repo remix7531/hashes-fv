@@ -1,12 +1,12 @@
 [package]
-name = "sha2"
+name = "sha2-fv"
 version = "0.11.0"
 authors = ["RustCrypto Developers"]
 edition = "2024"
 rust-version = "1.85"
-documentation = "https://docs.rs/sha2"
+documentation = "https://docs.rs/sha2-fv"
 readme = "README.md"
-repository = "https://github.com/RustCrypto/hashes"
+repository = "https://github.com/remix7531/hashes-fv"
 license = "MIT OR Apache-2.0"
 keywords = ["sha2", "hash", "digest"]
 categories = ["cryptography", "no-std"]
@@ -14,6 +14,12 @@ description = """
 Pure Rust implementation of the SHA-2 hash function family
 including SHA-224, SHA-256, SHA-384, and SHA-512.
 """
+
+[lib]
+# Keep the Rust crate name `sha2` so downstream `use sha2::sha256;` and the
+# Aeneas `--start-from sha2::sha256` extraction path stay unchanged. Only the
+# Cargo package name (sha2-fv) differs, to avoid clashing on crates.io.
+name = "sha2"
 
 [dependencies]
 cfg-if = "1"

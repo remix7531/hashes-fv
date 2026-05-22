@@ -1,4 +1,4 @@
-name: sha2
+name: sha2-fv
 
 on:
   pull_request:
@@ -17,241 +17,35 @@ env:
   RUSTFLAGS: -Dwarnings
   CARGO_INCREMENTAL: 0
 
-# Cancels CI jobs when new commits are pushed to a PR branch
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  set-msrv:
-    uses: RustCrypto/actions/.github/workflows/set-msrv.yml@master
-    with:
-      msrv: 1.85.0
-
-  # Builds for no_std platforms
-  build:
-    needs: set-msrv
+  build-and-test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         rust:
-          - ${{needs.set-msrv.outputs.msrv}}
+          - 1.85.0
           - stable
-        target:
-          - thumbv7em-none-eabi
-          - wasm32-unknown-unknown
-          - loongarch64-unknown-linux-gnu
-    steps:
-      - uses: actions/checkout@v6
-      - uses: RustCrypto/actions/cargo-cache@master
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.rust }}
-          targets: ${{ matrix.target }}
-      - uses: RustCrypto/actions/cargo-hack-install@master
-      - run: cargo hack build --target ${{ matrix.target }} --each-feature --exclude-features default,std
-
-  # Linux tests
-  linux:
-    needs: set-msrv
-    strategy:
-      matrix:
-        include:
-          # 32-bit Linux/x86
-          - target: i686-unknown-linux-gnu
-            rust: ${{needs.set-msrv.outputs.msrv}}
-            deps: sudo apt update && sudo apt install gcc-multilib
-          - target: i686-unknown-linux-gnu
-            rust: stable
-            deps: sudo apt update && sudo apt install gcc-multilib
-
-          # 64-bit Linux/x86_64
-          - target: x86_64-unknown-linux-gnu
-            rust: ${{needs.set-msrv.outputs.msrv}}
-          - target: x86_64-unknown-linux-gnu
-            rust: stable
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: RustCrypto/actions/cargo-cache@master
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.rust }}
-          targets: ${{ matrix.target }}
-      - uses: RustCrypto/actions/cargo-hack-install@master
-      - run: ${{ matrix.deps }}
-      - run: cargo hack test --feature-powerset
-      - run: cargo test --all-features
-        env:
-          RUSTFLAGS: -Dwarnings --cfg sha2_backend="soft"
-      - run: cargo test --all-features
-        env:
-          RUSTFLAGS: -Dwarnings --cfg sha2_backend="soft" --cfg sha2_backend_soft="compact"
-
-  # macOS tests
-  macos:
-    needs: set-msrv
-    strategy:
-      matrix:
-        rust:
-          - ${{needs.set-msrv.outputs.msrv}}
-          - stable
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: RustCrypto/actions/cargo-cache@master
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.rust }}
-          targets: x86_64-apple-darwin
-      - run: cargo test --no-default-features
-      - run: cargo test
-      - run: cargo test --all-features
-      - run: cargo test --all-features
-        env:
-          RUSTFLAGS: -Dwarnings --cfg sha2_backend="soft"
-      - run: cargo test --all-features
-        env:
-          RUSTFLAGS: -Dwarnings --cfg sha2_backend="soft" --cfg sha2_backend_soft="compact"
-
-  # Windows tests
-  windows:
-    needs: set-msrv
-    strategy:
-      matrix:
-        rust:
-          - ${{needs.set-msrv.outputs.msrv}}
-          - stable
-        target:
-          - x86_64-pc-windows-gnu
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: RustCrypto/actions/cargo-cache@master
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.rust }}
-          targets: ${{ matrix.target }}
-      - uses: msys2/setup-msys2@v2
-      - run: cargo test --target ${{ matrix.target }}
-      - run: cargo test --all-features
-        env:
-          RUSTFLAGS: -Dwarnings --cfg sha2_backend="soft"
-      - run: cargo test --all-features
-        env:
-          RUSTFLAGS: -Dwarnings --cfg sha2_backend="soft" --cfg sha2_backend_soft="compact"
-
-  # Cross-compiled tests
-  cross:
-    needs: set-msrv
-    strategy:
-      matrix:
-        rust:
-          - ${{needs.set-msrv.outputs.msrv}}
-          - stable
-        target:
-          - aarch64-unknown-linux-gnu
-          - powerpc-unknown-linux-gnu
         features:
-          - default
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        # Cross mounts only current package, i.e. by default it ignores workspace's Cargo.toml
-        working-directory: .
-    steps:
-      - uses: RustCrypto/actions/cross-tests@master
-        with:
-          rust: ${{ matrix.rust }}
-          package: ${{ github.workflow }}
-          target: ${{ matrix.target }}
-          features: ${{ matrix.features }}
-
-  riscv64-zknh:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        # Cross mounts only current package, i.e. by default it ignores workspace's Cargo.toml
-        working-directory: .
+          - --no-default-features --features sha256
+          - --no-default-features --features sha512
+          - --all-features
     steps:
       - uses: actions/checkout@v6
-      - uses: RustCrypto/actions/cargo-cache@master
-      - name: Install Cross
-        env:
-          # Do not fail on compilation warnings
-          RUSTFLAGS: ""
-        run: cargo install cross --git https://github.com/cross-rs/cross
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly
-      - run: cross test --package sha2 --all-features --target riscv64gc-unknown-linux-gnu
-        env:
-          RUSTFLAGS: -Dwarnings --cfg sha2_backend="soft"
-      - run: cross test --package sha2 --all-features --target riscv64gc-unknown-linux-gnu
-        env:
-          RUSTFLAGS: -Dwarnings --cfg sha2_backend="soft" --cfg sha2_backend_soft="compact"
-      - run: cross test --package sha2 --all-features --target riscv64gc-unknown-linux-gnu
-        env:
-          RUSTFLAGS: -Dwarnings --cfg sha2_backend="riscv-zknh" -C target-feature=+zknh,+zbkb
-      - run: cross test --package sha2 --all-features --target riscv64gc-unknown-linux-gnu
-        env:
-          RUSTFLAGS: -Dwarnings --cfg sha2_backend="riscv-zknh" --cfg sha2_backend_riscv_zknh="compact" -C target-feature=+zknh,+zbkb
-
-  riscv32-zknh:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: RustCrypto/actions/cargo-cache@master
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly
-          components: rust-src
-      - run: cargo build --all-features --target riscv32gc-unknown-linux-gnu -Z build-std
-        env:
-          RUSTFLAGS: -Dwarnings --cfg sha2_backend="soft"
-      - run: cargo build --all-features --target riscv32gc-unknown-linux-gnu -Z build-std
-        env:
-          RUSTFLAGS: -Dwarnings --cfg sha2_backend="soft" --cfg sha2_backend_soft="compact"
-      - run: cargo build --all-features --target riscv32gc-unknown-linux-gnu -Z build-std
-        env:
-          RUSTFLAGS: -Dwarnings --cfg sha2_backend="riscv-zknh" -C target-feature=+zknh,+zbkb
-      - run: cargo build --all-features --target riscv32gc-unknown-linux-gnu -Z build-std
-        env:
-          RUSTFLAGS: -Dwarnings --cfg sha2_backend="riscv-zknh" --cfg sha2_backend_riscv_zknh="compact" -C target-feature=+zknh,+zbkb
-
-  # wasmtime tests
-  wasm:
-    needs: set-msrv
-    strategy:
-      matrix:
-        include:
-          # without simd
-          - rust: ${{needs.set-msrv.outputs.msrv}}
-            flags: "-C target-feature=-simd128"
-          - rust: stable
-            flags: "-C target-feature=-simd128"
-
-          # with simd
-          - rust: ${{needs.set-msrv.outputs.msrv}}
-            flags: "-C target-feature=+simd128"
-          - rust: stable
-            flags: "-C target-feature=+simd128"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: RustCrypto/actions/cargo-cache@master
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
-          targets: wasm32-wasip1
-      - uses: RustCrypto/actions/cargo-hack-install@master
-      - uses: jcbhmr/setup-wasmtime@v2
-      - run: cargo hack test --feature-powerset --target wasm32-wasip1
-        env:
-          RUSTFLAGS: ${{ matrix.flags }}
-          CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime
+      - run: cargo build ${{ matrix.features }}
+      - run: cargo test ${{ matrix.features }}
 
-  minimal-versions:
-    uses: RustCrypto/actions/.github/workflows/minimal-versions.yml@master
-    with:
-      working-directory: ${{ github.workflow }}
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
