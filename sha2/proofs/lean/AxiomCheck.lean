@@ -6,6 +6,7 @@ import FinalBlock
 import Loop0
 import Loop1
 import Sha256
+import Sha224
 import Spec
 import Aeneas
 
@@ -20,3 +21,4 @@ import Aeneas
 #print axioms _root_.sha256_spec
 #print axioms _root_.sha256_correct
 #print axioms _root_.sha256_fips_correct
+#print axioms _root_.sha224_spec

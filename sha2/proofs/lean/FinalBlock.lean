@@ -1,4 +1,5 @@
 import U32
+import Common.U64
 import Aeneas
 
 /-!
@@ -26,19 +27,6 @@ in `Loop1`) provides the width-generic core: byte `i` of
 
 
 open Aeneas Aeneas.Std Result WP SHS.SHA256
-
-/-! ## `UInt64`/`U64` scalar bridge
-
-Mirrors `toUInt32`/`fromUInt32` from `U32.lean`. -/
-
-@[inline] def toUInt64 (x : U64) : UInt64 := ⟨x.bv⟩
-@[inline] def fromUInt64 (x : UInt64) : U64 := ⟨x.toBitVec⟩
-
-@[simp] theorem toUInt64_bv (x : U64) : (toUInt64 x).toBitVec = x.bv := rfl
-@[simp] theorem fromUInt64_bv (x : UInt64) : (fromUInt64 x).bv = x.toBitVec := rfl
-
-@[simp] theorem toUInt64_fromUInt64 (x : UInt64) : toUInt64 (fromUInt64 x) = x := rfl
-@[simp] theorem fromUInt64_toUInt64 (x : U64) : fromUInt64 (toUInt64 x) = x := rfl
 
 /-! ## BE-byte layout of `core.num.U64.to_be_bytes`
 
@@ -205,4 +193,37 @@ theorem padded_block_spec
     show _ = ((toUInt64 total_bits >>> UInt64.ofNat ((63 - k) * 8)) &&& 255).toUInt8
     rw [show 63 - (56 + (k - 56)) = 63 - k from by omega]
 
+/-! ## Iota-reshape for `padded_block_spec` consumers
+
+Both arms of the `remaining ≥ 56` branch in `Sha2InnerSpec.lean` need to
+reshape the `do`-block so the prefix matches `padded_block_spec`'s
+statement (which uses `lift (core.num.U64.to_be_bytes total_bits)` and
+`lift (Array.to_slice a)`). This is a pure monadic-laws rewrite — both
+sides reduce to the same `bind`-tree once `lift` is unfolded. -/
+
+/-- The fused `index_mut`-then-`copy_from_slice` `do`-block equals the
+explicit `lift`-decomposed prefix used by `padded_block_spec`, threaded
+through an arbitrary continuation `k`. Closes both reshape obligations
+in `sha2_inner_spec` with a single one-liner per arm. -/
+theorem padded_block_reshape {α : Type}
+    (fb_initial : Array U8 64#usize) (total_bits : U64)
+    (k : Array U8 64#usize → Result α) :
+    (do
+      let (s3, index_mut_back2) ←
+        core.array.Array.index_mut (core.ops.index.IndexMutSlice
+          (core.slice.index.SliceIndexRangeUsizeSlice U8))
+          fb_initial { start := 56#usize, «end» := 64#usize }
+      let s5 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 s3
+                 (core.num.U64.to_be_bytes total_bits).to_slice
+      k (index_mut_back2 s5))
+    = ((do
+        let __discr ←
+          core.array.Array.index_mut (core.ops.index.IndexMutSlice
+            (core.slice.index.SliceIndexRangeUsizeSlice U8))
+            fb_initial { start := 56#usize, «end» := 64#usize }
+        let a ← lift (core.num.U64.to_be_bytes total_bits)
+        let s4 ← lift (Array.to_slice a)
+        let s5 ← core.slice.Slice.copy_from_slice core.marker.CopyU8 __discr.1 s4
+        ok (__discr.2 s5)) >>= k) := by
+  simp [lift, bind_tc_ok]
 

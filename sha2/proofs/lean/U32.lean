@@ -1,6 +1,7 @@
 import Extraction
 import impl.SHA256
 import Mathlib.Tactic.IntervalCases
+import Common.U8
 
 /-!
 # Type bridge: Aeneas `Std.U32`/`Std.U8` ↔ Lean core `UInt32`/`UInt8`
@@ -18,19 +19,13 @@ open Aeneas Aeneas.Std
 /-! ## Scalar conversions -/
 
 @[inline] def toUInt32 (x : U32) : UInt32 := ⟨x.bv⟩
-@[inline] def toUInt8  (x : U8)  : UInt8  := ⟨x.bv⟩
 @[inline] def fromUInt32 (x : UInt32) : U32 := ⟨x.toBitVec⟩
-@[inline] def fromUInt8  (x : UInt8)  : U8  := ⟨x.toBitVec⟩
 
 @[simp] theorem toUInt32_bv (x : U32) : (toUInt32 x).toBitVec = x.bv := rfl
-@[simp] theorem toUInt8_bv  (x : U8)  : (toUInt8 x).toBitVec  = x.bv := rfl
 @[simp] theorem fromUInt32_bv (x : UInt32) : (fromUInt32 x).bv = x.toBitVec := rfl
-@[simp] theorem fromUInt8_bv  (x : UInt8)  : (fromUInt8 x).bv  = x.toBitVec := rfl
 
 @[simp] theorem toUInt32_fromUInt32 (x : UInt32) : toUInt32 (fromUInt32 x) = x := rfl
 @[simp] theorem fromUInt32_toUInt32 (x : U32) : fromUInt32 (toUInt32 x) = x := rfl
-@[simp] theorem toUInt8_fromUInt8 (x : UInt8) : toUInt8 (fromUInt8 x) = x := rfl
-@[simp] theorem fromUInt8_toUInt8 (x : U8) : fromUInt8 (toUInt8 x) = x := rfl
 
 /-! ## Pointwise operation preservation -/
 
@@ -70,14 +65,8 @@ theorem toUInt32_rotate_right (x n : U32) (hn : 0 < n.val) (hn2 : n.val < 32) :
 @[inline] def arrayU32ToVec {N : Usize} (a : Array U32 N) : Vector UInt32 N.val :=
   ⟨(a.val.map toUInt32).toArray, by simp [a.property]⟩
 
-@[inline] def arrayU8ToVec {N : Usize} (a : Array U8 N) : Vector UInt8 N.val :=
-  ⟨(a.val.map toUInt8).toArray, by simp [a.property]⟩
-
 @[simp] theorem arrayU32ToVec_size {N : Usize} (a : Array U32 N) :
     (arrayU32ToVec a).size = N.val := by simp [arrayU32ToVec]
-
-@[simp] theorem arrayU8ToVec_size {N : Usize} (a : Array U8 N) :
-    (arrayU8ToVec a).size = N.val := by simp [arrayU8ToVec]
 
 /-! ## Big-endian 4-byte decode bridge -/
 
@@ -162,14 +151,6 @@ theorem toUInt32_from_be_bytes_eq_beU32
   show ((block.val.map toUInt32).toArray)[i]'(by simpa [arrayU32ToVec] using h') = _
   simp
 
-@[simp] theorem arrayU8ToVec_getElem
-    {N : Usize} (block : Array U8 N) (i : Nat) (h : i < N.val)
-    (h' : i < (arrayU8ToVec block).size := by simp [arrayU8ToVec]; omega) :
-    (arrayU8ToVec block)[i]'h' =
-      toUInt8 (block.val[i]'(by simpa [block.property] using h)) := by
-  show ((block.val.map toUInt8).toArray)[i]'(by simpa [arrayU8ToVec] using h') = _
-  simp
-
 /-! ## Rewrite-friendly reformulations of `arrayU32ToVec` indexing
 
 These alternative forms target goals where the bound on the indexing
@@ -230,50 +211,6 @@ example (block : Array U32 16#usize) (i : Usize) (v : U32) (hi : i.val < 16) :
       (arrayU32ToVec block).set i.val (toUInt32 v)
         (by simp; exact hi) := by
   rw [arrayU32ToVec_set]
-
-/-! ## `Slice U8 → ByteArray` view
-
-A `ByteArray` whose underlying `data : Array UInt8` matches the
-Aeneas slice's logical contents (mapped through `toUInt8`). -/
-
-/-- Materialize a `ByteArray` from a `Slice U8` via `toUInt8`. -/
-def sliceToByteArray (data : Slice U8) : ByteArray :=
-  ⟨(data.val.map toUInt8).toArray⟩
-
-@[simp] theorem sliceToByteArray_data (data : Slice U8) :
-    (sliceToByteArray data).data = (data.val.map toUInt8).toArray := rfl
-
-@[simp] theorem sliceToByteArray_size (data : Slice U8) :
-    (sliceToByteArray data).size = data.length := by
-  simp [sliceToByteArray, ByteArray.size, Slice.length]
-
-/-- For any `ByteArray`, `toList` equals the underlying array's `toList`. -/
-theorem ByteArray.toList_eq_data_toList (bs : ByteArray) :
-    bs.toList = bs.data.toList := by
-  -- Generalize over loop accumulator and starting index.
-  suffices h : ∀ (i : Nat) (acc : List UInt8),
-      i ≤ bs.size →
-      ByteArray.toList.loop bs i acc =
-        acc.reverse ++ (bs.data.toList.drop i) by
-    have := h 0 [] (Nat.zero_le _)
-    simpa [ByteArray.toList] using this
-  intro i acc hi
-  induction k : bs.size - i generalizing i acc with
-  | zero =>
-    have hnlt : ¬ i < bs.size := by omega
-    rw [ByteArray.toList.loop]
-    simp [hnlt]
-    omega
-  | succ n ih =>
-    have hlt : i < bs.size := by omega
-    rw [ByteArray.toList.loop]
-    simp [hlt]
-    rw [ih (i + 1) (bs.get! i :: acc) hlt (by omega)]
-    rw [show bs.get! i = bs.data[i]! from rfl, List.reverse_cons, List.append_assoc]
-    congr 1
-    have hidata : i < bs.data.size := by simpa [← ByteArray.size_data] using hlt
-    rw [getElem!_pos bs.data i hidata, List.drop_eq_getElem_cons hidata]
-    simp [Array.getElem_toList]
 
 /-! ## SHA-256 round-constant table equivalence -/
 

@@ -171,14 +171,12 @@ theorem sha256_inner_loop1_spec
           have hkey := key_at (j % 4) hjmod
           rw [← hj_eq] at hkey
           rw [hkey]
-          rcases (show j % 4 = 0 ∨ j % 4 = 1 ∨ j % 4 = 2 ∨ j % 4 = 3 from by omega)
-            with h | h | h | h
-          all_goals (rw [h])
-          all_goals (first
-            | (norm_num only; rw [i2_post]; exact toUInt8_to_be_bytes_get i1 0 (by norm_num))
-            | (norm_num only; rw [i4_post]; exact toUInt8_to_be_bytes_get i1 1 (by norm_num))
-            | (norm_num only; rw [i6_post]; exact toUInt8_to_be_bytes_get i1 2 (by norm_num))
-            | (norm_num only; rw [i8_post]; exact toUInt8_to_be_bytes_get i1 3 (by norm_num)))
+          interval_cases (j % 4) <;> norm_num only <;>
+            first
+              | (rw [i2_post]; exact toUInt8_to_be_bytes_get i1 0 (by norm_num))
+              | (rw [i4_post]; exact toUInt8_to_be_bytes_get i1 1 (by norm_num))
+              | (rw [i6_post]; exact toUInt8_to_be_bytes_get i1 2 (by norm_num))
+              | (rw [i8_post]; exact toUInt8_to_be_bytes_get i1 3 (by norm_num))
         · have hk_outside : j < 4*iter.start.val ∨ 4*iter.start.val + 4 ≤ j := by
             by_contra hc; push Not at hc; apply hjblock; omega
           rw [key_out j hk_outside hj]

@@ -20,9 +20,10 @@ AENEAS_OPTIONS  := -backend lean -split-files -abort-on-error \
 # Translate the full SHA-256 path: the public `sha256` and `sha224` entry
 # points in lib.rs, plus everything they call.
 START_FROM      := \
-	--start-from sha2::sha256
+	--start-from sha2::sha256 \
+	--start-from sha2::sha224
 
-CARGO_FEATURES  := --no-default-features --features "sha256"
+CARGO_FEATURES  := --no-default-features --features "sha256,sha256_224"
 
 # Colors for output
 BLUE   := \033[34m

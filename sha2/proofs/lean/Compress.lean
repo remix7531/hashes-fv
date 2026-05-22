@@ -204,48 +204,31 @@ theorem compress_u32_spec
     show (a.val.set j.val v)[k]! = a.val[k]!
     rw [List.getElem!_eq_getElem?_getD, List.getElem!_eq_getElem?_getD,
         List.getElem?_set_ne hjk]
+  -- Each `hi(2k)` chases `i_{2k}_post` through the chain of `state_j_post`
+  -- rewrites; every off-diagonal lookup collapses via `set_get_ne`, applied
+  -- repeatedly to cover all set sites in the chain.
   have hi : i = state.val[0]! := i_post
   have hi2 : i2 = state.val[1]! := by
-    rw [i2_post, state1_post, set_get_ne _ _ _ _ (by decide)]
+    rw [i2_post, state1_post]; repeat rw [set_get_ne _ _ _ _ (by decide)]
   have hi4 : i4 = state.val[2]! := by
-    rw [i4_post, state2_post, state1_post,
-        set_get_ne _ 1#usize _ _ (by decide), set_get_ne _ 0#usize _ _ (by decide)]
+    rw [i4_post, state2_post, state1_post]
+    repeat rw [set_get_ne _ _ _ _ (by decide)]
   have hi6 : i6 = state.val[3]! := by
-    rw [i6_post, state3_post, state2_post, state1_post,
-        set_get_ne _ 2#usize _ _ (by decide),
-        set_get_ne _ 1#usize _ _ (by decide),
-        set_get_ne _ 0#usize _ _ (by decide)]
+    rw [i6_post, state3_post, state2_post, state1_post]
+    repeat rw [set_get_ne _ _ _ _ (by decide)]
   have hi8 : i8 = state.val[4]! := by
-    rw [i8_post, state4_post, state3_post, state2_post, state1_post,
-        set_get_ne _ 3#usize _ _ (by decide),
-        set_get_ne _ 2#usize _ _ (by decide),
-        set_get_ne _ 1#usize _ _ (by decide),
-        set_get_ne _ 0#usize _ _ (by decide)]
+    rw [i8_post, state4_post, state3_post, state2_post, state1_post]
+    repeat rw [set_get_ne _ _ _ _ (by decide)]
   have hi10 : i10 = state.val[5]! := by
-    rw [i10_post, state5_post, state4_post, state3_post, state2_post, state1_post,
-        set_get_ne _ 4#usize _ _ (by decide),
-        set_get_ne _ 3#usize _ _ (by decide),
-        set_get_ne _ 2#usize _ _ (by decide),
-        set_get_ne _ 1#usize _ _ (by decide),
-        set_get_ne _ 0#usize _ _ (by decide)]
+    rw [i10_post, state5_post, state4_post, state3_post, state2_post, state1_post]
+    repeat rw [set_get_ne _ _ _ _ (by decide)]
   have hi12 : i12 = state.val[6]! := by
-    rw [i12_post, state6_post, state5_post, state4_post, state3_post, state2_post, state1_post,
-        set_get_ne _ 5#usize _ _ (by decide),
-        set_get_ne _ 4#usize _ _ (by decide),
-        set_get_ne _ 3#usize _ _ (by decide),
-        set_get_ne _ 2#usize _ _ (by decide),
-        set_get_ne _ 1#usize _ _ (by decide),
-        set_get_ne _ 0#usize _ _ (by decide)]
+    rw [i12_post, state6_post, state5_post, state4_post, state3_post, state2_post, state1_post]
+    repeat rw [set_get_ne _ _ _ _ (by decide)]
   have hi14 : i14 = state.val[7]! := by
     rw [i14_post, state7_post, state6_post, state5_post, state4_post, state3_post,
-        state2_post, state1_post,
-        set_get_ne _ 6#usize _ _ (by decide),
-        set_get_ne _ 5#usize _ _ (by decide),
-        set_get_ne _ 4#usize _ _ (by decide),
-        set_get_ne _ 3#usize _ _ (by decide),
-        set_get_ne _ 2#usize _ _ (by decide),
-        set_get_ne _ 1#usize _ _ (by decide),
-        set_get_ne _ 0#usize _ _ (by decide)]
+        state2_post, state1_post]
+    repeat rw [set_get_ne _ _ _ _ (by decide)]
   rw [out_post, state7_post, state6_post, state5_post, state4_post, state3_post,
       state2_post, state1_post]
   rw [arrayU32ToVec_set8_chain]

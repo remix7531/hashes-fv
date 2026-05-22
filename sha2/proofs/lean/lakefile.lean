@@ -34,7 +34,10 @@ lean_lib Sha2 where
   srcDir := "."
   globs := #[
     .andSubmodules `Extraction,
+    .andSubmodules `Common,
     .one `U32, .one `ToU32s, .one `SetChain, .one `RoundStep,
     .one `Compress, .one `Loop0, .one `Loop1, .one `FinalBlock,
-    .one `Sha256, .one `Spec, .one `AxiomCheck
+    .one `Sha2Inner, .one `Sha2InnerSpec,
+    .one `Sha256, .one `Sha224,
+    .one `Spec, .one `AxiomCheck
   ]

@@ -17,33 +17,43 @@ has its own bridge lemma; this file glues them together via `range_loop_eq_finFo
 
 open Aeneas Aeneas.Std Result WP SHS.SHA256
 
+/-- Unpack an Aeneas spec hypothesis `act ⦃ post ⦄` into a concrete `ok` witness:
+if the action satisfies `post`, then it cannot be `.fail` or `.div`. -/
+private theorem ok_of_spec {α} {act : Result α} {post : α → Prop}
+    (h : act ⦃ s => post s ⦄) : ∃ v, act = .ok v ∧ post v := by
+  cases hact : act with
+  | ok v => rw [hact] at h; rw [spec_ok] at h; exact ⟨v, rfl, h⟩
+  | fail e => rw [hact] at h; rw [spec_fail] at h; exact h.elim
+  | div => rw [hact] at h; rw [spec_div] at h; exact h.elim
+
 /-! ## Byte-chunk view of one block -/
 
 theorem arrayU8ToVec_eq_chunk_view
-    (data : Slice U8) (i : Usize) (block : Array U8 64#usize)
-    (hbound : i.val * 64 + 64 ≤ data.length)
-    (hblock : ∀ (j : Nat) (hj : j < 64),
+    {C : Usize} (data : Slice U8) (i : Usize) (block : Array U8 C)
+    (hbound : i.val * C.val + C.val ≤ data.length)
+    (hblock : ∀ (j : Nat) (hj : j < C.val),
       block.val[j]'(by simpa [block.property] using hj) =
-        data.val[i.val * 64 + j]'(by
+        data.val[i.val * C.val + j]'(by
           exact Nat.lt_of_lt_of_le (Nat.add_lt_add_left hj _) hbound)) :
     arrayU8ToVec block =
-      Vector.ofFn (fun j : Fin 64 =>
-        (sliceToByteArray data).get! (i.val * 64 + j.val)) := by
+      Vector.ofFn (fun j : Fin C.val =>
+        (sliceToByteArray data).get! (i.val * C.val + j.val)) := by
   apply Vector.toArray_inj.mp
   rw [Vector.toArray_ofFn]
   show (block.val.map toUInt8).toArray = _
   apply Array.ext
   · simp [block.property]
   intro k h1 h2
-  have hk64 : k < 64 := by simpa [block.property] using h1
+  have hkC : k < C.val := by simpa [block.property] using h1
   rw [Array.getElem_ofFn]
   rw [show ((block.val.map toUInt8).toArray)[k]'h1
-        = toUInt8 (block.val[k]'(by simpa [block.property] using hk64)) by simp]
-  rw [hblock k hk64]
-  have hidx : i.val * 64 + k < data.val.length := by change ↑i * 64 + k < data.length; omega
+        = toUInt8 (block.val[k]'(by simpa [block.property] using hkC)) by simp]
+  rw [hblock k hkC]
+  have hidx : i.val * C.val + k < data.val.length := by
+    change ↑i * C.val + k < data.length; omega
   show toUInt8 _ = ByteArray.get! _ _
   unfold ByteArray.get!
-  show toUInt8 _ = ((data.val.map toUInt8).toArray)[i.val * 64 + k]!
+  show toUInt8 _ = ((data.val.map toUInt8).toArray)[i.val * C.val + k]!
   rw [getElem!_pos _ _ (by simp; omega)]
   simp
 
@@ -106,6 +116,7 @@ theorem loop0_action_spec
       rw [List.getElem_of_eq hs_val]
       rw [List.getElem_drop]
       simp [hi1]
+      rfl
     rw [hbck]
   rw [hu32]
 
@@ -155,28 +166,17 @@ theorem sha256_inner_loop0_spec
   have hf'_spec : ∀ (i : Usize) (s : Array U32 8#usize) (h : i.val < blocks.val),
       action i s ⦃ s' => s' = f' s ⟨i.val, h⟩ ⦄ := by
     intro i s h
-    have hview := haction_view i s h
-    simp only [spec, theta] at hview ⊢
-    cases hact : action i s with
-    | ok v =>
-      rw [hact] at hview
-      simp only [wp_return] at hview ⊢
-      simp only [hf'_def]; rw [show (⟨i.val, by scalar_tac⟩ : Usize) = i from UScalar.eq_of_val_eq rfl, hact]
-    | fail e => rw [hact] at hview; exact hview.elim
-    | div => rw [hact] at hview; exact hview.elim
+    obtain ⟨v, hact, _⟩ := ok_of_spec (haction_view i s h)
+    simp only [hf'_def,
+      show (⟨i.val, by scalar_tac⟩ : Usize) = i from UScalar.eq_of_val_eq rfl, hact]
+    rw [spec_ok]
   have hf'_to_view : ∀ (i : Fin blocks.val) (s : Array U32 8#usize),
       arrayU32ToVec (f' s i) = loop0_step data blocks (arrayU32ToVec s) i := by
     intro i s
-    have h1 := haction_view ⟨i.val, by have := i.isLt; have hle := blocks.hBounds; omega⟩ s i.isLt
-    have h2 := hf'_spec ⟨i.val, by have := i.isLt; have hle := blocks.hBounds; omega⟩ s i.isLt
-    simp only [spec, theta] at h1 h2
-    cases hact : action ⟨i.val, _⟩ s with
-    | ok v =>
-      rw [hact] at h1 h2
-      simp only [wp_return] at h1 h2
-      exact h2 ▸ h1
-    | fail e => rw [hact] at h1; exact h1.elim
-    | div => rw [hact] at h1; exact h1.elim
+    obtain ⟨v, hact, hpost⟩ := ok_of_spec (haction_view
+      ⟨i.val, by have := i.isLt; have hle := blocks.hBounds; omega⟩ s i.isLt)
+    simp only [hf'_def, hact]
+    exact hpost
   have hloop := range_loop_eq_finFoldl
     (N := blocks) (init := state) (f := f')
     (action := action) (haction := hf'_spec)
