@@ -52,7 +52,6 @@ extract:
 	@printf "$(BBLUE)[AENEAS]$(RESET) Translating LLBC → Lean...\n"
 	@mkdir -p $(LEAN_PKG)
 	aeneas $(LLBC) $(AENEAS_OPTIONS) -dest $(LEAN_DIR)
-	@printf "import Aeneas\n" > $(LEAN_PKG)/FunsExternal.lean
 	@printf "$(GREEN)✓$(RESET) Extraction complete. Generated files in $(LEAN_PKG)\n"
 
 prove:

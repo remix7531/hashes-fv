@@ -401,5 +401,6 @@ theorem sha256_spec (data : Slice U8) (h : data.length < 2 ^ 61) :
   intro out hout
   refine ⟨sliceToByteArray data, sliceToByteArray_toList data, ?_⟩
   rw [hout]
+  rfl
 
 

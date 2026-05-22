@@ -180,7 +180,7 @@ theorem sha256_inner_loop1_spec
             | (norm_num only; rw [i6_post]; exact toUInt8_to_be_bytes_get i1 2 (by norm_num))
             | (norm_num only; rw [i8_post]; exact toUInt8_to_be_bytes_get i1 3 (by norm_num)))
         · have hk_outside : j < 4*iter.start.val ∨ 4*iter.start.val + 4 ≤ j := by
-            by_contra hc; push_neg at hc; apply hjblock; omega
+            by_contra hc; push Not at hc; apply hjblock; omega
           rw [key_out j hk_outside hj]
           by_cases h_lt : j / 4 < iter.start.val <;>
             simp only [show j / 4 < iter.start.val + 1 ↔ j / 4 < iter.start.val from
@@ -196,22 +196,29 @@ theorem sha256_inner_loop1_spec
       have hjlt : j < 32 := by simpa using hj
       have hjwi : j / 4 < 8 := by omega
       have hjk : j / 4 < iter.start.val := by rw [hstart]; exact hjwi
-      rw [Vector.getElem_ofFn (h := hj)]
-      rw [arrayU8ToVec_getElem out' j hjlt]
+      change (arrayU8ToVec out')[j]'hjlt =
+        ((Vector.ofFn fun (k : Fin 32) =>
+            let wordIdx : Fin 8 := ⟨k.val / 4, by omega⟩
+            let byteIdx := k.val % 4
+            (((arrayU32ToVec state)[wordIdx] >>>
+                UInt32.ofNat ((3 - byteIdx) * 8)) &&& 0xff).toUInt8) : Vector UInt8 32)[j]'hjlt
+      rw [Vector.getElem_ofFn (h := hjlt)]
+      rw [show (arrayU8ToVec out')[j]'hjlt = toUInt8 (out'.val[j]'(by simpa [out'.property] using hjlt))
+          from arrayU8ToVec_getElem out' j hjlt]
       rw [show toUInt8 (out'.val[j]'(by rw [out'.property]; omega)) =
               toUInt8 (out'.val[j]!) by
             rw [getElem!_pos _ _ (by rw [out'.property]; omega)]]
       rw [hinv j hjlt]
       unfold specByte
       simp only [hjk, ↓reduceIte]
-      have hgs : ((arrayU32ToVec state)[(⟨j/4, by omega⟩ : Fin 8)]) =
+      have hgs : ((arrayU32ToVec state)[(⟨j/4, hjwi⟩ : Fin 8)]) =
           toUInt32 (state.val[j / 4]!) := by
-        rw [show ((arrayU32ToVec state)[(⟨j/4, by omega⟩ : Fin 8)]) =
-             (arrayU32ToVec state)[j / 4]'(by simp; omega) from rfl]
-        rw [arrayU32ToVec_getElem state (j / 4) hjwi]
+        show ((arrayU32ToVec state)[j/4]'(by simpa [arrayU32ToVec] using hjwi)) = _
+        rw [arrayU32ToVec_getElem state (j / 4) (by simp; exact hjwi)]
         congr 1
         rw [getElem!_pos _ _ (by rw [state.property]; exact hjwi)]
-      rw [hgs]
+      rw [show ((arrayU32ToVec state)[(⟨j/4, by omega⟩ : Fin 8)]) =
+            toUInt32 (state.val[j / 4]!) from hgs]
   · -- initial invariant
     refine ⟨rfl, by simp, ?_⟩
     intro j _; simp [specByte]

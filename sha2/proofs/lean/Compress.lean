@@ -124,6 +124,7 @@ theorem compress_u32_loop_spec
              (fun s i => tupledRoundStep i s) (0#usize : Usize).val init
       rw [show ((0#usize : Usize).val) = 0 from rfl,
           partialFinFoldl_zero]
+      rfl
 
 /-! ## Single-block compression -/
 

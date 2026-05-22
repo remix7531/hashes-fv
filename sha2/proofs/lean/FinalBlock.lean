@@ -190,7 +190,7 @@ theorem padded_block_spec
     show _ = if (⟨k, hk⟩ : Fin 64).val < 56 then _ else _
     rw [if_pos (show (⟨k, hk⟩ : Fin 64).val < 56 from hk56)]
     exact hlow k hk56
-  · push_neg at hk56
+  · push Not at hk56
     rw [List.getElem!_setSlice!_middle _ _ 56 k
       (by refine ⟨hk56, ?_, ?_⟩
           · simp; omega

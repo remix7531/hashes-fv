@@ -135,6 +135,7 @@ theorem compress_u32_body_spec
           (arrayU32ToVec block)[iter.start.val]'hlt := by
         rw [w_post, getElem!_pos _ _ (by simp [block.property]; omega),
             ← arrayU32ToVec_getElem block iter.start.val hlt]
+        rfl
       have hK : toUInt32 i9 = Impl.K32[(⟨iter.start.val, hi⟩ : Fin 64)] := by
         rw [i9_post]; exact K32_eq iter.start.val hi
       refine hw ▸ hK ▸ ?_

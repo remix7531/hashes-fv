@@ -29,6 +29,6 @@ theorem arrayU32ToVec_set8_chain
   rcases state with ⟨l, hl⟩
   match l, hl with
   | [_, _, _, _, _, _, _, _], _ =>
-    simp [arrayU32ToVec, Aeneas.Std.Array.set]
+    simp [arrayU32ToVec, Aeneas.Std.Array.set, Vector.toList]
 
 
