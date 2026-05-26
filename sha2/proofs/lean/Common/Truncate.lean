@@ -31,7 +31,7 @@ theorem array_truncate_spec
       core.result.Result.unwrap core.fmt.DebugTryFromSliceError r)
     ⦃ out => (arrayU8ToVec out).toList = target.toList.take N.val ⦄ := by
   have hsv_len : state.val.length = M.val := by
-    have := state.property; simpa using this
+    have := state.property; simp
   -- Step 1: `Array.index` reduces to slice indexing.
   step as ⟨s1, hs1_val, hs1_len⟩
   -- Step 2: `try_from` returns `.Ok` with `arr.val = s1.val`.
