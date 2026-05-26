@@ -1,5 +1,5 @@
-import U32
-import FinalBlock
+import Word.U32
+import Sha256.FinalBlock
 import Aeneas
 
 /-!

@@ -1,6 +1,6 @@
-import U32
-import ToU32s
-import Compress
+import Word.U32
+import Word.ToU32s
+import Sha256.Compress
 import equiv.SHA256.ToU32s
 import Aeneas
 

@@ -1,4 +1,4 @@
-import U32
+import Word.U32
 
 /-!
 # IV-parameterized SHA-256 Impl bridge

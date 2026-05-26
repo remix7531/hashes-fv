@@ -1,9 +1,5 @@
 import Sha256
-import Sha224
 import Sha512
-import Sha384
-import Sha512_256
-import Sha512_224
 import equiv.SHA256.Main
 import equiv.SHA512.Main
 

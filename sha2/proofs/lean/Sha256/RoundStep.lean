@@ -1,4 +1,4 @@
-import ToU32s
+import Word.ToU32s
 
 /-!
 # Per-round body bridge for `compress_u32`

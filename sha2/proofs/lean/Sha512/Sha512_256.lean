@@ -1,4 +1,4 @@
-import Sha512
+import Sha512.Sha512
 
 /-! Top-level SHA-512/256 refinement statement (proof pending). -/
 

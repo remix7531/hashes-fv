@@ -1,4 +1,4 @@
-import U32
+import Word.U32
 import Common.U64
 import Aeneas
 

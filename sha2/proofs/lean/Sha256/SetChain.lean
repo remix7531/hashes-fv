@@ -1,4 +1,4 @@
-import U32
+import Word.U32
 
 /-!
 # 8-fold chain of `Aeneas.Std.Array.set` through `arrayU32ToVec`

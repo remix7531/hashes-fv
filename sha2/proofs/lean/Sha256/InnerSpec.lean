@@ -1,9 +1,9 @@
-import Compress
-import SetChain
-import Loop0
-import Loop1
-import FinalBlock
-import Sha2Inner
+import Sha256.Compress
+import Sha256.SetChain
+import Sha256.Loop0
+import Sha256.Loop1
+import Sha256.FinalBlock
+import Sha256.Inner
 
 /-!
 # IV-generic SHA-256 inner refinement

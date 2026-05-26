@@ -1,5 +1,5 @@
-import RoundStep
-import SetChain
+import Sha256.RoundStep
+import Sha256.SetChain
 
 /-!
 # Refinement of `compress_u32` and `compress256` against `SHS.SHA256.Impl`

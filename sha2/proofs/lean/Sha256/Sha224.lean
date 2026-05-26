@@ -1,6 +1,6 @@
-import Sha256
-import Sha2Inner
-import Sha2InnerSpec
+import Sha256.Sha256
+import Sha256.Inner
+import Sha256.InnerSpec
 import Common.Truncate
 
 /-!
