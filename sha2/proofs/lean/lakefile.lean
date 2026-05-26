@@ -35,9 +35,18 @@ lean_lib Sha2 where
   globs := #[
     .andSubmodules `Extraction,
     .andSubmodules `Common,
-    .one `U32, .one `ToU32s, .one `SetChain, .one `RoundStep,
+    .one `U32, .one `U64,
+    .one `ToU32s, .one `ToU64s,
+    .one `SetChain, .one `RoundStep,
     .one `Compress, .one `Loop0, .one `Loop1, .one `FinalBlock,
     .one `Sha2Inner, .one `Sha2InnerSpec,
     .one `Sha256, .one `Sha224,
+    .one `Sha512, .one `Sha384, .one `Sha512_256, .one `Sha512_224,
     .one `Spec, .one `AxiomCheck
+    -- SHA-512 family proof modules (RoundStep512, Compress512, Loop0_512,
+    -- Loop1_512, FinalBlock512, SetChain512, Sha2Inner512, Sha2InnerSpec512)
+    -- will be re-added once the per-round bridge and compress refinement
+    -- are in place. The top-level `Sha{384,512,512_224,512_256}_spec`
+    -- statements are kept as `sorry` so the spec-layer corollaries in
+    -- `Spec.lean` still type-check.
   ]

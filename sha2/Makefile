@@ -21,9 +21,14 @@ AENEAS_OPTIONS  := -backend lean -split-files -abort-on-error \
 # points in lib.rs, plus everything they call.
 START_FROM      := \
 	--start-from sha2::sha256 \
-	--start-from sha2::sha224
+	--start-from sha2::sha224 \
+	--start-from sha2::sha512 \
+	--start-from sha2::sha384 \
+	--start-from sha2::sha512_256 \
+	--start-from sha2::sha512_224
 
-CARGO_FEATURES  := --no-default-features --features "sha256,sha256_224"
+CARGO_FEATURES  := --no-default-features \
+	--features "sha256,sha256_224,sha512,sha512_224,sha512_256,sha512_384"
 
 # Colors for output
 BLUE   := \033[34m
