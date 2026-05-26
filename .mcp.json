@@ -4,7 +4,7 @@
       "command": "lean-lsp-mcp",
       "args": [
         "--lean-project-path",
-        "hashes/sha2/proofs/lean"
+        "sha2/proofs/lean"
       ]
     }
   }
