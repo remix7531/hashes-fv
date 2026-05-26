@@ -1,17 +1,15 @@
 import Word
 import Sha256
 import Sha512
-import Spec
 import Aeneas
 
 /-! # Axiom audit for the SHA-2 refinement proofs
 
-The SHA-256 family is fully proved; the SHA-512 family currently
-admits its top-level `_spec` statement via `sorry`, so the SHA-512
-audit lines below are expected to report `sorryAx`. They are kept so
-that the audit becomes meaningful automatically once the SHA-512
-proof lands.
--/
+Each `<algo>_spec` is the public top-level theorem in its respective
+module (e.g., `Sha256/Sha256.lean`), relating the Aeneas-extracted
+`Extraction.<algo>` to the FIPS-180-4 bitwise spec `SHS.SHA<XXX>.<algo>`
+via `digestBitVec` and `sliceBitMessage` (from `Common/Digest.lean`)
+and the per-algorithm Impl↔Spec proof from `fips-pub-180-4-lean`. -/
 
 /-! ## Aeneas backend bridge lemmas (theorems, not axioms — for reference). -/
 #print axioms Aeneas.Std.slice_iter_loop_eq_foldl
@@ -20,22 +18,10 @@ proof lands.
 
 /-! ## SHA-256 family — load-bearing trust statement. -/
 #print axioms _root_.sha256_spec
-#print axioms _root_.sha256_correct
-#print axioms _root_.sha256_fips_correct
 #print axioms _root_.sha224_spec
-#print axioms _root_.sha224_correct
-#print axioms _root_.sha224_fips_correct
 
-/-! ## SHA-512 family — pending (expected: `sorryAx`). -/
+/-! ## SHA-512 family — load-bearing trust statement. -/
 #print axioms _root_.sha512_spec
-#print axioms _root_.sha512_correct
-#print axioms _root_.sha512_fips_correct
 #print axioms _root_.sha384_spec
-#print axioms _root_.sha384_correct
-#print axioms _root_.sha384_fips_correct
 #print axioms _root_.sha512_256_spec
-#print axioms _root_.sha512_256_correct
-#print axioms _root_.sha512_256_fips_correct
 #print axioms _root_.sha512_224_spec
-#print axioms _root_.sha512_224_correct
-#print axioms _root_.sha512_224_fips_correct

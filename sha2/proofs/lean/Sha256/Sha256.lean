@@ -5,22 +5,19 @@ import Sha256.Loop1
 import Sha256.FinalBlock
 import Sha256.Inner
 import Sha256.InnerSpec
+import Common.Digest
+import equiv.SHA256.Main
 
 /-!
-# Full SHA-256 refinement against `SHS.SHA256.Impl`
+# Full SHA-256 refinement against the FIPS-180-4 bitwise spec
 
 The IV-generic inner-spec body lives in `Sha2InnerSpec.lean` (shared
-with SHA-224); this file specializes it at `iv = H256_256` and wraps
-with the `Impl.sha256` panic clause via `Local.sha256_eq_sha2Inner256`.
--/
+with SHA-224); this file specialises it at `iv = H256_256`, wraps with
+the `Impl.sha256` panic clause via `Local.sha256_eq_sha2Inner256`, then
+chains through `SHS.Equiv.SHA256.sha256_correct` (from `fips-pub-180-4`)
+to land on the bitwise spec `SHS.SHA256.sha256`. -/
 
 open Aeneas Aeneas.Std Result WP SHS.SHA256
-
-/-! ### Top-level theorem.
-
-`sha256_inner` casts `data.size << 3` to `u64`; the cast silently wraps on
-inputs ≥ 2^61 bytes. The Impl side `panic!`s above that threshold, so the
-refinement carries `data.length < 2^61` as a precondition. -/
 
 /-- SHA-256 inner-spec — corollary of the IV-generic `sha2_inner_spec` at
 `iv = consts.H256_256, iv_vec = Impl.H256_256`, bridged back to
@@ -35,16 +32,23 @@ private theorem sha256_inner_spec
   rw [hout, Local.sha256_eq_sha2Inner256 _
         (by simpa [sliceToByteArray_size] using h)]
 
+private theorem sha256_impl_spec (data : Slice U8) (h : data.length < 2 ^ 61) :
+    Extraction.sha256 data
+    ⦃ out => arrayU8ToVec out = Impl.sha256 (sliceToByteArray data) ⦄ := by
+  unfold Extraction.sha256
+  exact sha256_inner_spec data h
+
 /-- Public top-level spec: the Aeneas-extracted `sha256` returns the
-same digest as `Impl.sha256` on the corresponding `ByteArray`. -/
+same 256-bit digest as the FIPS-180-4 bitwise spec `SHS.SHA256.sha256`. -/
 theorem sha256_spec (data : Slice U8) (h : data.length < 2 ^ 61) :
     Extraction.sha256 data
     ⦃ out =>
-        ∃ ba : ByteArray, ba.toList = (data.val.map toUInt8) ∧
-          (arrayU8ToVec out).toList = (Impl.sha256 ba).toList ⦄ := by
-  unfold Extraction.sha256
-  apply spec_mono (sha256_inner_spec data h)
+        digestBitVec (arrayU8ToVec out) =
+          SHS.SHA256.sha256 (sliceBitMessage data)
+            (sliceBitMessage_lt_2_64 data h) ⦄ := by
+  apply spec_mono (sha256_impl_spec data h)
   intro out hout
-  refine ⟨sliceToByteArray data, sliceToByteArray_toList data, ?_⟩
   rw [hout]
-  rfl
+  show SHS.Equiv.SHA256.Digest.digestBitVec (Impl.sha256 _) = _
+  exact SHS.Equiv.SHA256.sha256_correct _
+    (by simpa [sliceToByteArray_size] using h)

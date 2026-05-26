@@ -25,7 +25,7 @@ package «sha2-proofs» {}
 --     + Extraction/FunsExternal.lean — Aeneas-generated extraction
 --     (regenerated on each extraction; not hand-edited)
 --   * top-level proof modules (U32, ToU32s, Compress, RoundStep, Loop0,
---     Loop1, FinalBlock, SetChain, Sha256, Spec, AxiomCheck) —
+--     Loop1, FinalBlock, SetChain, Sha256, AxiomCheck) —
 --     hand-written refinement proof
 --
 -- `srcDir := "."` makes Lake resolve module names relative to this lakefile.
@@ -38,5 +38,5 @@ lean_lib Sha2 where
     .andSubmodules `Word,
     .andSubmodules `Sha256,
     .andSubmodules `Sha512,
-    .one `Spec, .one `AxiomCheck
+    .one `AxiomCheck
   ]

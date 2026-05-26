@@ -5,14 +5,18 @@ import Sha512.Loop1
 import Sha512.FinalBlock
 import Sha512.Inner
 import Sha512.InnerSpec
+import Common.Digest
+import equiv.SHA512.Main
 
 /-!
-# Full SHA-512 refinement against `SHS.SHA512.Impl`
+# Full SHA-512 refinement against the FIPS-180-4 bitwise spec
 
 The IV-generic inner-spec body lives in `InnerSpec.lean` (shared with
 SHA-384 / SHA-512/256 / SHA-512/224); this file specialises it at
-`iv = H0_512` and wraps with the `Impl.sha512` panic clause via
-`Local.sha512_eq_sha2Inner512`. -/
+`iv = H0_512`, wraps with the `Impl.sha512` panic clause via
+`Local.sha512_eq_sha2Inner512`, then chains through
+`SHS.Equiv.SHA512.sha512_correct` (from `fips-pub-180-4`) to land on
+the bitwise spec `SHS.SHA512.sha512`. -/
 
 open Aeneas Aeneas.Std Result WP SHS.SHA512
 
@@ -29,16 +33,23 @@ private theorem sha512_inner_spec
   rw [hout, Local.sha512_eq_sha2Inner512 _
         (by simpa [sliceToByteArray_size] using h)]
 
+private theorem sha512_impl_spec (data : Slice U8) (h : data.length < 2 ^ 61) :
+    Extraction.sha512 data
+    ⦃ out => arrayU8ToVec out = Impl.sha512 (sliceToByteArray data) ⦄ := by
+  unfold Extraction.sha512
+  exact sha512_inner_spec data h
+
 /-- Public top-level spec: the Aeneas-extracted `sha512` returns the
-same digest as `Impl.sha512` on the corresponding `ByteArray`. -/
+same 512-bit digest as the FIPS-180-4 bitwise spec `SHS.SHA512.sha512`. -/
 theorem sha512_spec (data : Slice U8) (h : data.length < 2 ^ 61) :
     Extraction.sha512 data
     ⦃ out =>
-        ∃ ba : ByteArray, ba.toList = (data.val.map toUInt8) ∧
-          (arrayU8ToVec out).toList = (Impl.sha512 ba).toList ⦄ := by
-  unfold Extraction.sha512
-  apply spec_mono (sha512_inner_spec data h)
+        digestBitVec (arrayU8ToVec out) =
+          SHS.SHA512.sha512 (sliceBitMessage data)
+            (sliceBitMessage_lt_2_128 data h) ⦄ := by
+  apply spec_mono (sha512_impl_spec data h)
   intro out hout
-  refine ⟨sliceToByteArray data, sliceToByteArray_toList data, ?_⟩
   rw [hout]
-  rfl
+  show SHS.Equiv.SHA512.Digest.digestBitVec512 (Impl.sha512 _) = _
+  exact SHS.Equiv.SHA512.sha512_correct _
+    (by simpa [sliceToByteArray_size] using h)
