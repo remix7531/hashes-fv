@@ -22,3 +22,5 @@ import Aeneas
 #print axioms _root_.sha256_correct
 #print axioms _root_.sha256_fips_correct
 #print axioms _root_.sha224_spec
+#print axioms _root_.sha224_correct
+#print axioms _root_.sha224_fips_correct

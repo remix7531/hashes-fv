@@ -198,7 +198,7 @@ theorem sha2_inner_spec
     rw [hs6_val] at hstate2; simp only [List.foldl_cons, List.foldl_nil] at hstate2
     apply spec_mono (sha256_inner_loop1_spec state2 (Array.repeat 32#usize 0#u8))
     intro out hout; rw [hout]
-    unfold Local.sha2Inner256
+    unfold Local.sha2Inner256 SHS.SHA256.Impl.sha256State
     have hsz : (sliceToByteArray data).size = data.length := by simp
     have hvA_eq : vA = Vector.ofFn (fun k : Fin 64 =>
         if k.val < data.length % 64 then (sliceToByteArray data).get! (data.length / 64 * 64 + k.val)
@@ -259,7 +259,7 @@ theorem sha2_inner_spec
     rw [hs6_val] at hstate2; simp only [List.foldl_cons, List.foldl_nil] at hstate2
     apply spec_mono (sha256_inner_loop1_spec state2 (Array.repeat 32#usize 0#u8))
     intro out hout; rw [hout]
-    unfold Local.sha2Inner256
+    unfold Local.sha2Inner256 SHS.SHA256.Impl.sha256State
     have hsz : (sliceToByteArray data).size = data.length := by simp
     apply Vector.ext; intro j hj
     simp only [Vector.getElem_ofFn]
