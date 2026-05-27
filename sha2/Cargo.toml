@@ -1,7 +1,7 @@
 [package]
 name = "sha2-fv"
 version = "0.11.0"
-authors = ["RustCrypto Developers"]
+authors = ["RustCrypto Developers", "remix7531 <remix7531@mailbox.org>"]
 edition = "2024"
 rust-version = "1.85"
 documentation = "https://docs.rs/sha2-fv"
@@ -11,28 +11,22 @@ license = "MIT OR Apache-2.0"
 keywords = ["sha2", "hash", "digest"]
 categories = ["cryptography", "no-std"]
 description = """
-Pure Rust implementation of the SHA-2 hash function family
-including SHA-224, SHA-256, SHA-384, and SHA-512.
+Formally verified Pure Rust implementation of the SHA-2 hash function
+family (SHA-224, SHA-256, SHA-384, SHA-512, SHA-512/224, SHA-512/256),
+with Lean 4 proofs of correctness against FIPS 180-4.
 """
 
 [lib]
-# Keep the Rust crate name `sha2` so downstream `use sha2::sha256;` and the
-# Aeneas `--start-from sha2::sha256` extraction path stay unchanged. Only the
-# Cargo package name (sha2-fv) differs, to avoid clashing on crates.io.
+# Library name is `sha2` to match the verified extraction target; the
+# Cargo package name `sha2-fv` is distinct to avoid crates.io clashes.
 name = "sha2"
-
-[dependencies]
-cfg-if = "1"
-
-[target.'cfg(hax)'.dependencies]
-hax-lib = { git = "https://github.com/cryspen/hax", tag = "hax-lib-v0.3.5" }
 
 [dev-dependencies]
 blobby = { version = "0.4", features = ["alloc"] }
 hex-literal = "1"
 
 [features]
-default = ["sha256", "sha512"]
+default = ["sha256", "sha256_224", "sha512", "sha512_224", "sha512_256", "sha512_384"]
 compress = []
 sha256 = []
 sha256_224 = []
@@ -40,12 +34,6 @@ sha512 = []
 sha512_224 = []
 sha512_256 = []
 sha512_384 = []
-
-[lints.rust.unexpected_cfgs]
-level = "warn"
-check-cfg = [
-    'cfg(hax)',
-]
 
 [package.metadata.docs.rs]
 all-features = true
