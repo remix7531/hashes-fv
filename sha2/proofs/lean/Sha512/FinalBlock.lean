@@ -1,6 +1,4 @@
 import Word.U64
-import Common.U64
-import Aeneas
 
 /-!
 # Padding-block byte-equality bridge for SHA-512's final block
@@ -11,46 +9,13 @@ the `0x80` marker at `remaining`, zeros up to byte 112, then a 16-byte
 length tag at `[112, 128)` (the high 8 bytes are zero — see file docstring
 in `impl/SHA512.lean` for the U128-without-UInt128 trick).
 
-The load-bearing lemma `toUInt8_be_byte` is shared structurally with
-SHA-256's `FinalBlock.lean`; the U64 version is the same up to width.
-This file additionally states `padded_block_spec` for the SHA-512 final
-block (sorry'd at this stage).
+The U64-width BE-byte extraction lemma `toUInt8_be_byte` lives in
+`Common/U64.lean` (shared with SHA-256's `FinalBlock`); this file
+adds the U128 sibling `toUInt8_be_byte_U128` and the `padded_block_spec_512`
+top-level lemma for the SHA-512 final block.
 -/
 
 open Aeneas Aeneas.Std Result WP SHS.SHA512
-
-/-- Byte `i` (`i < 8`) of the BE-encoding of a `U64` equals the
-shift-and-mask form `((toUInt64 total_bits >>> ((7-i)*8)) &&& 0xff).toUInt8`. -/
-theorem toUInt8_be_byte (total_bits : U64) (i : Nat) (hi : i < 8) :
-    toUInt8 ((total_bits.bv.toBEBytes.map (UScalar.mk (ty := .U8)) : List U8)[i]!) =
-      ((toUInt64 total_bits >>> (UInt64.ofNat ((7 - i) * 8))) &&& 0xff).toUInt8 := by
-  have hlen_be : total_bits.bv.toBEBytes.length = 8 :=
-    BitVec.toBEBytes_length total_bits.bv (by decide)
-  have hmap : (total_bits.bv.toBEBytes.map (UScalar.mk (ty := .U8)) : List U8)[i]! =
-              UScalar.mk (ty := .U8) (total_bits.bv.toBEBytes[i]!) := by
-    simp [getElem!_pos, hlen_be, hi, List.getElem_map]
-  rw [hmap]
-  apply UInt8.toBitVec_inj.mp
-  show total_bits.bv.toBEBytes[i]! = _
-  rw [BitVec.toBEBytes_getElem!_eq_shift_mask (n := 64) (by decide) total_bits.bv i
-        (by simpa using hi)]
-  rw [show (64 / 8 - 1 - i) = (7 - i) from by omega]
-  show _ = ((((toUInt64 total_bits >>> (UInt64.ofNat ((7 - i) * 8))) &&& 0xff)).toBitVec).setWidth 8
-  congr 1
-  simp only [UInt64.toBitVec_and, UInt64.toBitVec_shiftRight]
-  have hk_lt : (7 - i) * 8 < 64 := by omega
-  have h2 : ((UInt64.ofNat ((7 - i) * 8)).toBitVec % 64 : BitVec 64) =
-            BitVec.ofNat 64 ((7 - i) * 8) := by
-    have heq : (UInt64.ofNat ((7 - i) * 8)).toBitVec = BitVec.ofNat 64 ((7 - i) * 8) := rfl
-    rw [heq]; apply BitVec.eq_of_toNat_eq
-    simp only [BitVec.toNat_umod, BitVec.toNat_ofNat]
-    rw [show (64 : BitVec 64).toNat = 64 from rfl]; omega
-  rw [h2]
-  simp only [show (toUInt64 total_bits).toBitVec = total_bits.bv from rfl,
-             show UInt64.toBitVec 255 = (BitVec.ofNat 64 0xff) from rfl]
-  congr 1
-  show _ = total_bits.bv >>> (BitVec.ofNat 64 ((7 - i) * 8)).toNat
-  rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
 
 /-- Byte `i` (`i < 16`) of the BE-encoding of a `U128`, in the canonical
 shift-and-mask form returned by `BitVec.toBEBytes_getElem!_eq_shift_mask`. -/
@@ -62,8 +27,7 @@ theorem toUInt8_be_byte_U128 (total_bits : U128) (i : Nat) (hi : i < 16) :
   have hmap : (total_bits.bv.toBEBytes.map (UScalar.mk (ty := .U8)) : List U8)[i]! =
               UScalar.mk (ty := .U8) (total_bits.bv.toBEBytes[i]!) := by
     simp [getElem!_pos, hlen_be, hi, List.getElem_map]
-  rw [hmap]
-  apply UInt8.toBitVec_inj.mp
+  rw [hmap]; apply UInt8.toBitVec_inj.mp
   show total_bits.bv.toBEBytes[i]! = _
   rw [BitVec.toBEBytes_getElem!_eq_shift_mask (n := 128) (by decide) total_bits.bv i
         (by simpa using hi)]
@@ -94,20 +58,10 @@ theorem total_bits_bv_eq_u128_shifted (data : Slice U8) (h : data.length < 2 ^ 6
   show ((Slice.len data).bv.zeroExtend 128) <<< 3 = _
   apply BitVec.eq_of_toNat_eq
   simp only [BitVec.toNat_shiftLeft, BitVec.toNat_setWidth, BitVec.toNat_ofNat]
-  have hlen : (Slice.len data).bv.toNat = data.length := rfl
-  have h128 : data.length * 8 < 2 ^ 128 := by
-    have h1 : (2 : Nat) ^ 61 * 8 = 2 ^ 64 := by decide
-    have h2 : (2 : Nat) ^ 64 < 2 ^ 128 := by decide
-    have h3 : data.length * 8 < 2 ^ 61 * 8 := by
-      have h4 : (0 : Nat) < 8 := by decide
-      have h5 := (Nat.mul_lt_mul_right h4).mpr h
-      exact h5
-    omega
-  rw [hlen]
-  have hn128 : data.length < 2 ^ 128 := by
-    have : (2 : Nat) ^ 61 < 2 ^ 128 := by decide
-    omega
-  rw [Nat.mod_eq_of_lt hn128]
+  rw [show (Slice.len data).bv.toNat = data.length from rfl,
+      Nat.mod_eq_of_lt (show data.length < 2 ^ 128 by
+        have : (2 : Nat) ^ 61 < 2 ^ 128 := by decide
+        omega)]
   show data.length <<< 3 % 2 ^ 128 = data.length * 8 % 2 ^ 128
   rw [Nat.shiftLeft_eq, show (2 ^ 3 : Nat) = 8 from rfl]
 
@@ -156,48 +110,34 @@ theorem padded_block_spec_512
         finalBlockB_bytes.val, by scalar_tac⟩ : Slice U8) =
       Slice.len (⟨(core.num.U128.to_be_bytes total_bits).val, by scalar_tac⟩ : Slice U8) := by
     apply UScalar.eq_of_val_eq; simp [List.slice, hfb_len]
-  simp only [hlen_eq, ↓reduceIte, bind_tc_ok, spec, theta, wp_return]
-  simp only [Array.from_slice]
+  simp only [hlen_eq, ↓reduceIte, bind_tc_ok, spec, theta, wp_return, Array.from_slice]
   have hsetSlice_len : ((finalBlockB_bytes.val).setSlice!
       (↑(112#usize : Usize) : Nat) (core.num.U128.to_be_bytes total_bits).val).length =
-      (128#usize : Usize).val := by
-    simp [hfb_len]
-  simp only [show ((finalBlockB_bytes.val).setSlice!
-      (↑(112#usize : Usize) : Nat) (core.num.U128.to_be_bytes total_bits).val).length =
-      (128#usize : Usize).val from hsetSlice_len, ↓reduceDIte]
-  apply Vector.toArray_inj.mp
-  rw [Vector.toArray_ofFn]
+      (128#usize : Usize).val := by simp [hfb_len]
+  simp only [hsetSlice_len, ↓reduceDIte]
+  apply Vector.toArray_inj.mp; rw [Vector.toArray_ofFn]
   show (((finalBlockB_bytes.val.setSlice! 112 (core.num.U128.to_be_bytes total_bits).val).map
       toUInt8).toArray : Array UInt8) = _
-  apply Array.ext
-  · simp
+  apply Array.ext (h₁ := by simp)
   intro k h1 _
-  rw [Array.getElem_ofFn]
   have hk : k < 128 := by simp at h1; omega
-  have hlen : (finalBlockB_bytes.val.setSlice! 112
-      (core.num.U128.to_be_bytes total_bits).val).length = 128 := by simp [hfb_len]
-  rw [List.getElem_toArray, List.getElem_map, ← getElem!_pos _ _ (by rw [hlen]; exact hk)]
+  rw [Array.getElem_ofFn, List.getElem_toArray, List.getElem_map,
+      ← getElem!_pos _ _ (by simp [hfb_len]; exact hk)]
   by_cases hk112 : k < 112
   · rw [List.getElem!_setSlice!_prefix _ _ 112 k hk112]
     show toUInt8 (finalBlockB_bytes.val[k]!) = _
     rw [getElem!_pos finalBlockB_bytes.val k (by omega)]
     show _ = if (⟨k, hk⟩ : Fin 128).val < 112 then _ else _
-    rw [if_pos (show (⟨k, hk⟩ : Fin 128).val < 112 from hk112)]
-    exact hlow k hk112
+    rw [if_pos (show (⟨k, hk⟩ : Fin 128).val < 112 from hk112)]; exact hlow k hk112
   · push Not at hk112
-    rw [List.getElem!_setSlice!_middle _ _ 112 k
-      (by refine ⟨hk112, ?_, ?_⟩
-          · simp; omega
-          · omega)]
+    rw [List.getElem!_setSlice!_middle _ _ 112 k (⟨hk112, by simp; omega, by omega⟩)]
     show _ = if (⟨k, hk⟩ : Fin 128).val < 112 then _ else _
-    rw [if_neg (show ¬ (⟨k, hk⟩ : Fin 128).val < 112 from by simp; omega)]
-    have hk' : k - 112 < 16 := by omega
-    rw [u128_be_bytes_match total_bits (k - 112) hk']
-    show _ = (⟨BitVec.setWidth 8
-                  ((total_bits.bv >>> ((127 - (⟨k, hk⟩ : Fin 128).val) * 8)) &&&
-                    BitVec.ofNat 128 0xff)⟩ : UInt8)
+    rw [if_neg (show ¬ (⟨k, hk⟩ : Fin 128).val < 112 from by simp; omega),
+        u128_be_bytes_match total_bits (k - 112) (by omega)]
     show (⟨BitVec.setWidth 8 ((total_bits.bv >>> ((127 - (112 + (k - 112))) * 8)) &&&
-            BitVec.ofNat 128 0xff)⟩ : UInt8) = _
+            BitVec.ofNat 128 0xff)⟩ : UInt8) =
+         (⟨BitVec.setWidth 8 ((total_bits.bv >>> ((127 - k) * 8)) &&&
+            BitVec.ofNat 128 0xff)⟩ : UInt8)
     rw [show 127 - (112 + (k - 112)) = 127 - k from by omega]
 
 /-! ## Bridge between the 128-bit BE-byte form and the U64 BE-byte form
@@ -217,17 +157,13 @@ theorem u128_be_byte_high_zero (n : Nat) (hn : n < 2 ^ 64) (k : Nat) (hk : k < 8
   apply BitVec.eq_of_toNat_eq
   simp only [BitVec.toNat_setWidth, BitVec.toNat_and, BitVec.toNat_ushiftRight,
     BitVec.toNat_ofNat]
-  rw [Nat.mod_eq_of_lt (show n < 2^128 by
-    have : (2:Nat) ^ 64 < 2 ^ 128 := by decide
-    omega)]
-  rw [show ((0xff : Nat) % 2 ^ 128) = 0xff from by decide]
-  have hshift : (15 - k) * 8 ≥ 64 := by omega
   have hn_shifted : n >>> ((15 - k) * 8) = 0 := by
     rw [Nat.shiftRight_eq_div_pow]
-    have hle : 2 ^ 64 ≤ 2 ^ ((15 - k) * 8) := Nat.pow_le_pow_right (by decide) hshift
-    have : n < 2 ^ ((15 - k) * 8) := lt_of_lt_of_le hn hle
-    exact Nat.div_eq_of_lt this
-  rw [hn_shifted]
+    exact Nat.div_eq_of_lt (lt_of_lt_of_le hn (Nat.pow_le_pow_right (by decide) (by omega)))
+  rw [Nat.mod_eq_of_lt (show n < 2^128 by
+        have : (2:Nat) ^ 64 < 2 ^ 128 := by decide
+        omega),
+      show ((0xff : Nat) % 2 ^ 128) = 0xff from by decide, hn_shifted]
   simp
 
 /-- For `n < 2 ^ 64` and `k ∈ [8..16)`, the byte at position `112 + k` of
@@ -247,19 +183,17 @@ theorem u128_be_byte_low_eq_u64 (n : Nat) (hn : n < 2 ^ 64) (k : Nat)
   have h128lt : n < 2 ^ 128 := by
     have : (2:Nat) ^ 64 < 2 ^ 128 := by decide
     omega
+  have hand_eq : n >>> ((15 - k) * 8) &&& 0xff = n >>> ((15 - k) * 8) % 256 := by
+    rw [show (0xff : Nat) = 256 - 1 from rfl, Nat.and_two_pow_sub_one_eq_mod (n := 8)]
+  have hand_lt : n >>> ((15 - k) * 8) &&& 0xff < 2 ^ 8 := by
+    rw [hand_eq]; exact Nat.mod_lt _ (by decide)
   /- Compute LHS as Nat -/
   have hLHS : (BitVec.setWidth 8 ((BitVec.ofNat 128 n >>> ((15 - k) * 8)) &&&
                   BitVec.ofNat 128 0xff)).toNat = (n >>> ((15 - k) * 8)) % 256 := by
     simp only [BitVec.toNat_setWidth, BitVec.toNat_and, BitVec.toNat_ushiftRight,
       BitVec.toNat_ofNat]
-    rw [show ((0xff : Nat) % 2 ^ 128) = 0xff from by decide]
-    rw [Nat.mod_eq_of_lt h128lt]
-    have hand_bound : (n >>> ((15 - k) * 8) &&& 0xff) ≤ 0xff := Nat.and_le_right
-    have hand_lt_256 : (n >>> ((15 - k) * 8) &&& 0xff) < 256 := by omega
-    rw [show (2 ^ 8 : Nat) = 256 from rfl]
-    rw [Nat.mod_eq_of_lt hand_lt_256]
-    show n >>> ((15 - k) * 8) &&& 0xff = n >>> ((15 - k) * 8) % 256
-    rw [show (0xff : Nat) = 256 - 1 from rfl, Nat.and_two_pow_sub_one_eq_mod (n := 8)]
+    rw [show ((0xff : Nat) % 2 ^ 128) = 0xff from by decide, Nat.mod_eq_of_lt h128lt,
+        Nat.mod_eq_of_lt hand_lt, hand_eq]
   /- Compute RHS as Nat -/
   have hRHS : ((((UInt64.ofNat n) >>> ((15 - k) * 8).toUInt64) &&&
                   0xff).toBitVec.setWidth 8).toNat = (n >>> ((15 - k) * 8)) % 256 := by
@@ -270,26 +204,17 @@ theorem u128_be_byte_low_eq_u64 (n : Nat) (hn : n < 2 ^ 64) (k : Nat)
       simp only [BitVec.toNat_umod]
       rw [show (64 : BitVec 64).toNat = 64 from rfl]
       show ((15 - k) * 8) % 2 ^ 64 % 64 = (15 - k) * 8
-      rw [Nat.mod_eq_of_lt (by
-        have : (2 : Nat) ^ 64 > 0 := by decide
-        omega : (15 - k) * 8 < 2 ^ 64)]
-      exact Nat.mod_eq_of_lt hshift_lt
+      rw [Nat.mod_eq_of_lt (by omega : (15 - k) * 8 < 2 ^ 64), Nat.mod_eq_of_lt hshift_lt]
     /- The BV >>> BV reduces to BV >>> .toNat -/
     rw [show ((UInt64.ofNat n).toBitVec >>>
               (((15 - k) * 8).toUInt64.toBitVec % 64) : BitVec 64) =
             ((UInt64.ofNat n).toBitVec >>>
               (((15 - k) * 8).toUInt64.toBitVec % (64 : BitVec 64)).toNat : BitVec 64)
-        from rfl]
-    rw [BitVec.toNat_ushiftRight, hcast_shift_nat]
-    have h1 : ((UInt64.ofNat n).toBitVec.toNat) = n % 2 ^ 64 := rfl
-    have h2 : ((255 : UInt64).toBitVec.toNat) = 255 := rfl
-    rw [h1, h2, Nat.mod_eq_of_lt hn]
-    have hand_bound : (n >>> ((15 - k) * 8) &&& 255) ≤ 255 := Nat.and_le_right
-    have hand_lt_256 : (n >>> ((15 - k) * 8) &&& 255) < 256 := by omega
-    rw [show (2 ^ 8 : Nat) = 256 from rfl]
-    rw [Nat.mod_eq_of_lt hand_lt_256]
-    show n >>> ((15 - k) * 8) &&& 255 = n >>> ((15 - k) * 8) % 256
-    rw [show (255 : Nat) = 256 - 1 from rfl, Nat.and_two_pow_sub_one_eq_mod (n := 8)]
+        from rfl,
+        BitVec.toNat_ushiftRight, hcast_shift_nat,
+        show ((UInt64.ofNat n).toBitVec.toNat) = n % 2 ^ 64 from rfl,
+        show ((255 : UInt64).toBitVec.toNat) = 255 from rfl,
+        Nat.mod_eq_of_lt hn, Nat.mod_eq_of_lt hand_lt, hand_eq]
   rw [hLHS, hRHS]
 
 /-! ## Iota-reshape for `padded_block_spec_512` consumers

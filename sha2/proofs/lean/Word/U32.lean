@@ -12,8 +12,6 @@ lemmas keyed on `BitVec` equality, so refinement proofs can rewrite
 through a `Vector UInt32 _` view of an `Array Std.U32 _`.
 -/
 
-
-
 open Aeneas Aeneas.Std
 
 /-! ## Scalar conversions -/
@@ -55,10 +53,46 @@ theorem toUInt32_rotate_right (x n : U32) (hn : 0 < n.val) (hn2 : n.val < 32) :
   unfold UScalar.rotate_right SHS.SHA256.Impl.UInt32.rotr
   show x.bv.rotateRight n.val = _
   rw [BitVec.rotateRight_def, Nat.mod_eq_of_lt hn2]
-  simp [BitVec.toNat_sub, Nat.mod_eq_of_lt, hn2]
-  congr 2
-  have h : (4294967296 : Nat) = 32 * 134217728 := by norm_num
-  omega
+  simp [BitVec.toNat_sub, Nat.mod_eq_of_lt, hn2]; grind
+
+/-! ## Literal rotation bridges for SHA-256
+
+The general `toUInt32_rotate_right` bridge carries side-conditions
+`0 < n.val < 32`, so it cannot be a `simp` lemma directly. Materialize
+the 10 literal-amount instances actually used by SHA-256
+(2, 6, 7, 11, 13, 17, 18, 19, 22, 25) as side-condition-free lemmas.
+The `compress_u32_body_spec` proof rewrites with these via `simp only`. -/
+
+theorem rotr_bridge_2 (x : U32) :
+    toUInt32 (UScalar.rotate_right x 2#u32) = SHS.SHA256.Impl.UInt32.rotr (toUInt32 x) 2 :=
+  toUInt32_rotate_right x 2#u32 (by decide) (by decide)
+theorem rotr_bridge_6 (x : U32) :
+    toUInt32 (UScalar.rotate_right x 6#u32) = SHS.SHA256.Impl.UInt32.rotr (toUInt32 x) 6 :=
+  toUInt32_rotate_right x 6#u32 (by decide) (by decide)
+theorem rotr_bridge_7 (x : U32) :
+    toUInt32 (UScalar.rotate_right x 7#u32) = SHS.SHA256.Impl.UInt32.rotr (toUInt32 x) 7 :=
+  toUInt32_rotate_right x 7#u32 (by decide) (by decide)
+theorem rotr_bridge_11 (x : U32) :
+    toUInt32 (UScalar.rotate_right x 11#u32) = SHS.SHA256.Impl.UInt32.rotr (toUInt32 x) 11 :=
+  toUInt32_rotate_right x 11#u32 (by decide) (by decide)
+theorem rotr_bridge_13 (x : U32) :
+    toUInt32 (UScalar.rotate_right x 13#u32) = SHS.SHA256.Impl.UInt32.rotr (toUInt32 x) 13 :=
+  toUInt32_rotate_right x 13#u32 (by decide) (by decide)
+theorem rotr_bridge_17 (x : U32) :
+    toUInt32 (UScalar.rotate_right x 17#u32) = SHS.SHA256.Impl.UInt32.rotr (toUInt32 x) 17 :=
+  toUInt32_rotate_right x 17#u32 (by decide) (by decide)
+theorem rotr_bridge_18 (x : U32) :
+    toUInt32 (UScalar.rotate_right x 18#u32) = SHS.SHA256.Impl.UInt32.rotr (toUInt32 x) 18 :=
+  toUInt32_rotate_right x 18#u32 (by decide) (by decide)
+theorem rotr_bridge_19 (x : U32) :
+    toUInt32 (UScalar.rotate_right x 19#u32) = SHS.SHA256.Impl.UInt32.rotr (toUInt32 x) 19 :=
+  toUInt32_rotate_right x 19#u32 (by decide) (by decide)
+theorem rotr_bridge_22 (x : U32) :
+    toUInt32 (UScalar.rotate_right x 22#u32) = SHS.SHA256.Impl.UInt32.rotr (toUInt32 x) 22 :=
+  toUInt32_rotate_right x 22#u32 (by decide) (by decide)
+theorem rotr_bridge_25 (x : U32) :
+    toUInt32 (UScalar.rotate_right x 25#u32) = SHS.SHA256.Impl.UInt32.rotr (toUInt32 x) 25 :=
+  toUInt32_rotate_right x 25#u32 (by decide) (by decide)
 
 /-! ## `Array Std.U32 N` ↔ `Vector UInt32 N` -/
 
@@ -130,13 +164,9 @@ theorem toUInt32_from_be_bytes_eq_beU32
   rw [toUInt32_from_be_bytes, hchunk]
   simp only [List.getElem!_cons_zero, List.getElem!_cons_succ]
   unfold Impl.beU32
-  have hlen : block.val.length = 64 := block.property
   have hidx : ∀ (i : Nat) (hi : i < 64),
-      (arrayU8ToVec block)[i]'(by simp; omega)
-        = toUInt8 (block.val[i]!) := by
-    intro i hi
-    show (List.map toUInt8 block.val).toArray[i]'(by simp; omega) = _
-    simp [getElem!_pos, hi, hlen]
+      (arrayU8ToVec block)[i]'(by simp; omega) = toUInt8 (block.val[i]!) := fun i hi => by
+    simp [arrayU8ToVec, hi, block.property]
   rw [← hidx (4 * j) (by omega), ← hidx (4 * j + 1) (by omega),
       ← hidx (4 * j + 2) (by omega), ← hidx (4 * j + 3) (by omega)]
   rfl
@@ -148,8 +178,7 @@ theorem toUInt32_from_be_bytes_eq_beU32
     (h' : i < (arrayU32ToVec block).size := by simp [arrayU32ToVec]; omega) :
     (arrayU32ToVec block)[i]'h' =
       toUInt32 (block.val[i]'(by simpa [block.property] using h)) := by
-  show ((block.val.map toUInt32).toArray)[i]'(by simpa [arrayU32ToVec] using h') = _
-  simp
+  simp [arrayU32ToVec]
 
 /-! ## Rewrite-friendly reformulations of `arrayU32ToVec` indexing
 
@@ -169,9 +198,7 @@ where the bound is implicit. -/
     {N : Usize} (block : Array U32 N) (i : Nat) :
     (arrayU32ToVec block).toList[i]! = toUInt32 (block.val[i]!) := by
   rw [arrayU32ToVec_toList]
-  by_cases h : i < N.val
-  · simp [block.property, h]
-  · simp [block.property, h]; rfl
+  by_cases h : i < N.val <;> (simp [block.property, h]; try rfl)
 
 /-! ## `arrayU32ToVec` of `Array.set`
 
@@ -201,70 +228,20 @@ theorem arrayU32ToVec_set
     (hi : i.val < (arrayU32ToVec block).size) :
     arrayU32ToVec (block.set i v) =
       (arrayU32ToVec block).set i.val (toUInt32 v) hi := by
-  apply Vector.toList_inj.mp
-  rw [arrayU32ToVec_set_toList, Vector.toList_set, arrayU32ToVec_toList]
-
-/-- Sanity check that `arrayU32ToVec_set` fires on a goal of the
-shape arising in the i ≥ 16 schedule-write branch. -/
-example (block : Array U32 16#usize) (i : Usize) (v : U32) (hi : i.val < 16) :
-    arrayU32ToVec (block.set i v) =
-      (arrayU32ToVec block).set i.val (toUInt32 v)
-        (by simp; exact hi) := by
-  rw [arrayU32ToVec_set]
+  apply Vector.toList_inj.mp; rw [arrayU32ToVec_set_toList, Vector.toList_set, arrayU32ToVec_toList]
 
 /-! ## SHA-256 round-constant table equivalence -/
-
-/-- Unfold the Aeneas-extracted `K32` constants table to a literal list.
-The Aeneas definition is marked `@[irreducible]`, so we expose its body
-behind a non-irreducible name. -/
-private theorem sha2_K32_val :
-    (Extraction.consts.K32 : Array U32 64#usize).val =
-      [1116352408#u32, 1899447441#u32, 3049323471#u32, 3921009573#u32,
-       961987163#u32, 1508970993#u32, 2453635748#u32, 2870763221#u32,
-       3624381080#u32, 310598401#u32, 607225278#u32, 1426881987#u32,
-       1925078388#u32, 2162078206#u32, 2614888103#u32, 3248222580#u32,
-       3835390401#u32, 4022224774#u32, 264347078#u32, 604807628#u32,
-       770255983#u32, 1249150122#u32, 1555081692#u32, 1996064986#u32,
-       2554220882#u32, 2821834349#u32, 2952996808#u32, 3210313671#u32,
-       3336571891#u32, 3584528711#u32, 113926993#u32, 338241895#u32,
-       666307205#u32, 773529912#u32, 1294757372#u32, 1396182291#u32,
-       1695183700#u32, 1986661051#u32, 2177026350#u32, 2456956037#u32,
-       2730485921#u32, 2820302411#u32, 3259730800#u32, 3345764771#u32,
-       3516065817#u32, 3600352804#u32, 4094571909#u32, 275423344#u32,
-       430227734#u32, 506948616#u32, 659060556#u32, 883997877#u32,
-       958139571#u32, 1322822218#u32, 1537002063#u32, 1747873779#u32,
-       1955562222#u32, 2024104815#u32, 2227730452#u32, 2361852424#u32,
-       2428436474#u32, 2756734187#u32, 3204031479#u32, 3329325298#u32] := by
-  unfold Extraction.consts.K32
-  rfl
 
 /-- Entry-wise equivalence between the Aeneas-extracted round constants
 and the FIPS-spec `Impl.K32` table. -/
 theorem K32_eq (i : Nat) (hi : i < 64) :
     toUInt32 ((Extraction.consts.K32 : Array U32 64#usize).val[i]!) =
       SHS.SHA256.Impl.K32[i]'(by simpa using hi) := by
-  rw [sha2_K32_val]
-  revert hi
-  revert i
-  decide
+  unfold Extraction.consts.K32; revert hi i; decide
 
 /-! ## SHA-256 initial-hash-value table equivalence -/
-
-/-- Unfold the Aeneas-extracted `H256_256` constants table to a literal list.
-The Aeneas definition is marked `@[irreducible]`, so we expose its body
-behind a non-irreducible name. -/
-private theorem sha2_H256_256_val :
-    (Extraction.consts.H256_256 : Array U32 8#usize).val =
-      [1779033703#u32, 3144134277#u32, 1013904242#u32, 2773480762#u32,
-       1359893119#u32, 2600822924#u32, 528734635#u32, 1541459225#u32] := by
-  unfold Extraction.consts.H256_256
-  rfl
 
 /-- The Aeneas-extracted SHA-256 IV bridges to the FIPS-spec `Impl.H256_256`. -/
 theorem H256_256_eq :
     arrayU32ToVec Extraction.consts.H256_256 = SHS.SHA256.Impl.H256_256 := by
-  apply Vector.toList_inj.mp
-  rw [arrayU32ToVec_toList, sha2_H256_256_val]
-  decide
-
-
+  apply Vector.toList_inj.mp; unfold Extraction.consts.H256_256; decide

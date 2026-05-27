@@ -36,8 +36,7 @@ open Aeneas Aeneas.Std
     (h' : i < (arrayU8ToVec block).size := by simp [arrayU8ToVec]; omega) :
     (arrayU8ToVec block)[i]'h' =
       toUInt8 (block.val[i]'(by simpa [block.property] using h)) := by
-  show ((block.val.map toUInt8).toArray)[i]'(by simpa [arrayU8ToVec] using h') = _
-  simp
+  simp [arrayU8ToVec]
 
 /-! ## `Slice U8 → ByteArray` view
 
@@ -68,24 +67,43 @@ theorem ByteArray.toList_eq_data_toList (bs : ByteArray) :
   intro i acc hi
   induction k : bs.size - i generalizing i acc with
   | zero =>
-    have hnlt : ¬ i < bs.size := by omega
-    rw [ByteArray.toList.loop]
-    simp [hnlt]
-    omega
+    rw [ByteArray.toList.loop]; simp [show ¬ i < bs.size from by omega]; omega
   | succ n ih =>
     have hlt : i < bs.size := by omega
-    rw [ByteArray.toList.loop]
-    simp [hlt]
-    rw [ih (i + 1) (bs.get! i :: acc) hlt (by omega)]
-    rw [show bs.get! i = bs.data[i]! from rfl, List.reverse_cons, List.append_assoc]
-    congr 1
     have hidata : i < bs.data.size := by simpa [← ByteArray.size_data] using hlt
-    rw [getElem!_pos bs.data i hidata, List.drop_eq_getElem_cons hidata]
-    simp [Array.getElem_toList]
+    rw [ByteArray.toList.loop, if_pos hlt, ih (i + 1) (bs.get! i :: acc) hlt (by omega),
+        show bs.get! i = bs.data[i]! from rfl, List.reverse_cons, List.append_assoc]
+    fcongr 1
+    simp [getElem!_pos bs.data i hidata, List.drop_eq_getElem_cons hidata, Array.getElem_toList]
 
 /-- `toList` of `sliceToByteArray data` is the `toUInt8`-mapped slice data. -/
 theorem sliceToByteArray_toList (data : Slice U8) :
     (sliceToByteArray data).toList = data.val.map toUInt8 := by
-  rw [ByteArray.toList_eq_data_toList]
-  show ((data.val.map toUInt8).toArray).toList = data.val.map toUInt8
-  simp
+  rw [ByteArray.toList_eq_data_toList]; simp [sliceToByteArray]
+
+/-! ## Byte-chunk view of one block
+
+Generic over the chunk width `C : Usize`.  SHA-256 instantiates at `C = 64`,
+SHA-512 at `C = 128`. -/
+
+/-- The view-level shape `arrayU8ToVec block` of the `i`-th `C`-byte chunk of
+`data` matches the `Vector.ofFn` view of the corresponding bytes of
+`sliceToByteArray data`, as long as the chunk is in range and the entries
+of `block` agree with `data` slot-by-slot. -/
+theorem arrayU8ToVec_eq_chunk_view
+    {C : Usize} (data : Slice U8) (i : Usize) (block : Array U8 C)
+    (hbound : i.val * C.val + C.val ≤ data.length)
+    (hblock : ∀ (j : Nat) (hj : j < C.val),
+      block.val[j]'(by simpa [block.property] using hj) =
+        data.val[i.val * C.val + j]'(Nat.lt_of_lt_of_le (Nat.add_lt_add_left hj _) hbound)) :
+    arrayU8ToVec block =
+      Vector.ofFn (fun j : Fin C.val =>
+        (sliceToByteArray data).get! (i.val * C.val + j.val)) := by
+  apply Vector.toArray_inj.mp
+  rw [Vector.toArray_ofFn]
+  apply Array.ext
+  · simp [arrayU8ToVec, block.property]
+  intro k h1 h2
+  have hkC : k < C.val := by simpa [arrayU8ToVec, block.property] using h1
+  simp [arrayU8ToVec, Array.getElem_ofFn, hblock k hkC, ByteArray.get!,
+    show i.val * C.val + k < data.val.length from by change ↑i * C.val + k < data.length; omega]

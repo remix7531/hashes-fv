@@ -1,4 +1,5 @@
 import Word.U64
+import Common.Vec
 
 /-!
 # IV-parameterized SHA-512 Impl bridge
@@ -38,44 +39,20 @@ theorem sha384_eq_sha2Inner512_take (data : ByteArray) (h : data.size < 2 ^ 61) 
     (sha384 data).toList = (sha2Inner512 H0_384 data).toList.take 48 := by
   unfold sha384 sha2Inner512
   rw [if_neg (by omega : ¬ 2 ^ 61 ≤ data.size)]
-  apply List.ext_getElem
-  · simp
-  · intro k hk _
-    have hk48 : k < 48 := by have := hk; simp at this; exact this
-    rw [Vector.getElem_toList (h := by simp; exact hk48),
-        Vector.getElem_ofFn (h := hk48),
-        List.getElem_take,
-        Vector.getElem_toList (h := by simp; omega),
-        Vector.getElem_ofFn (h := by omega)]
+  exact vector_ofFn_take_of_agree (K := 48) (M := 64) (by decide) _ _ (fun _ _ => rfl)
 
 /-- `Impl.sha512_256` is the first 32 bytes of the IV-parameterized core at `H0_512_256`. -/
 theorem sha512_256_eq_sha2Inner512_take (data : ByteArray) (h : data.size < 2 ^ 61) :
     (sha512_256 data).toList = (sha2Inner512 H0_512_256 data).toList.take 32 := by
   unfold sha512_256 sha2Inner512
   rw [if_neg (by omega : ¬ 2 ^ 61 ≤ data.size)]
-  apply List.ext_getElem
-  · simp
-  · intro k hk _
-    have hk32 : k < 32 := by have := hk; simp at this; exact this
-    rw [Vector.getElem_toList (h := by simp; exact hk32),
-        Vector.getElem_ofFn (h := hk32),
-        List.getElem_take,
-        Vector.getElem_toList (h := by simp; omega),
-        Vector.getElem_ofFn (h := by omega)]
+  exact vector_ofFn_take_of_agree (K := 32) (M := 64) (by decide) _ _ (fun _ _ => rfl)
 
 /-- `Impl.sha512_224` is the first 28 bytes of the IV-parameterized core at `H0_512_224`. -/
 theorem sha512_224_eq_sha2Inner512_take (data : ByteArray) (h : data.size < 2 ^ 61) :
     (sha512_224 data).toList = (sha2Inner512 H0_512_224 data).toList.take 28 := by
   unfold sha512_224 sha2Inner512
   rw [if_neg (by omega : ¬ 2 ^ 61 ≤ data.size)]
-  apply List.ext_getElem
-  · simp
-  · intro k hk _
-    have hk28 : k < 28 := by have := hk; simp at this; exact this
-    rw [Vector.getElem_toList (h := by simp; exact hk28),
-        Vector.getElem_ofFn (h := hk28),
-        List.getElem_take,
-        Vector.getElem_toList (h := by simp; omega),
-        Vector.getElem_ofFn (h := by omega)]
+  exact vector_ofFn_take_of_agree (K := 28) (M := 64) (by decide) _ _ (fun _ _ => rfl)
 
 end Local

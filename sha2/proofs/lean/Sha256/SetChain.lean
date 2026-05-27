@@ -8,8 +8,6 @@ output (a chain of 8 `Array.set` calls on an 8-element state array)
 to a literal `Vector` of 8 `UInt32`s.
 -/
 
-
-
 open Aeneas Aeneas.Std
 
 /-- An 8-fold chain of `Aeneas.Std.Array.set` over an 8-element `U32`
@@ -30,5 +28,3 @@ theorem arrayU32ToVec_set8_chain
   match l, hl with
   | [_, _, _, _, _, _, _, _], _ =>
     simp [arrayU32ToVec, Aeneas.Std.Array.set, Vector.toList]
-
-

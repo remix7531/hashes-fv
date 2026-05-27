@@ -34,16 +34,14 @@ per-width `SHS.Equiv.SHA{256,512}.Digest.digestBitVec…` family to any `N`. -/
 theorem sliceBitMessage_lt_2_64
     (data : Slice U8) (h : data.length < 2 ^ 61) :
     (sliceBitMessage data).length < 2 ^ 64 :=
-  SHS.Equiv.SHA256.Pipeline.bitLen_lt_of_size_lt _
-    (by simpa [sliceToByteArray_size] using h)
+  SHS.Equiv.SHA256.Pipeline.bitLen_lt_of_size_lt _ (by simpa [sliceToByteArray_size] using h)
 
 /-- A byte slice with byte length below `2^61` has bit length below `2^128`
 (consumed by SHA-512 / SHA-384 / SHA-512/256 / SHA-512/224 specs). -/
 theorem sliceBitMessage_lt_2_128
     (data : Slice U8) (h : data.length < 2 ^ 61) :
     (sliceBitMessage data).length < 2 ^ 128 :=
-  SHS.Equiv.SHA512.Pipeline.bitLen_lt_of_size_lt _
-    (by simpa [sliceToByteArray_size] using h)
+  SHS.Equiv.SHA512.Pipeline.bitLen_lt_of_size_lt _ (by simpa [sliceToByteArray_size] using h)
 
 /-! ## `digestBitVec` ≡ the per-width fips-pub-180-4 views -/
 

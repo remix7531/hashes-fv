@@ -1,4 +1,5 @@
 import Word.U32
+import Common.Vec
 
 /-!
 # IV-parameterized SHA-256 Impl bridge
@@ -58,15 +59,7 @@ theorem sha224_eq_sha2Inner256_take (data : ByteArray) (h : data.size < 2 ^ 61) 
     (sha224 data).toList = (sha2Inner256 H256_224 data).toList.take 28 := by
   unfold sha224 sha2Inner256
   rw [if_neg (by omega : ¬ 2 ^ 61 ≤ data.size)]
-  apply List.ext_getElem
-  · simp
-  · intro k hk _
-    have hk28 : k < 28 := by have := hk; simp at this; exact this
-    rw [Vector.getElem_toList (h := by simp; exact hk28),
-        Vector.getElem_ofFn (h := hk28),
-        List.getElem_take,
-        Vector.getElem_toList (h := by simp; omega),
-        Vector.getElem_ofFn (h := by omega)]
+  exact vector_ofFn_take_of_agree (K := 28) (M := 32) (by decide) _ _ (fun _ _ => rfl)
 
 /-- Unfold the Aeneas-extracted `H256_224` constants table to a literal list.
 The Aeneas definition is marked `@[irreducible]`, so we expose its body
@@ -75,17 +68,13 @@ theorem sha2_H256_224_val :
     (Extraction.consts.H256_224 : Array U32 8#usize).val =
       [3238371032#u32, 914150663#u32, 812702999#u32, 4144912697#u32,
        4290775857#u32, 1750603025#u32, 1694076839#u32, 3204075428#u32] := by
-  unfold Extraction.consts.H256_224
-  rfl
+  unfold Extraction.consts.H256_224; rfl
 
 /-- The Aeneas-extracted SHA-224 IV bridges to the upstream `Impl.H256_224`. -/
 theorem H256_224_eq :
     arrayU32ToVec Extraction.consts.H256_224 = H256_224 := by
-  apply Vector.toList_inj.mp
-  rw [arrayU32ToVec_toList]
-  show (Extraction.consts.H256_224 : Array U32 8#usize).val.map toUInt32 =
-    H256_224.toList
-  rw [sha2_H256_224_val]
-  decide
+  apply Vector.toList_inj.mp; rw [arrayU32ToVec_toList]
+  show (Extraction.consts.H256_224 : Array U32 8#usize).val.map toUInt32 = H256_224.toList
+  rw [sha2_H256_224_val]; decide
 
 end Local

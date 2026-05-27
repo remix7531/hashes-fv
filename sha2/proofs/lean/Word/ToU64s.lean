@@ -1,5 +1,4 @@
 import Word.U64
-import Aeneas
 
 /-!
 # Refinement: `Extraction.sha512.to_u64s` ↔ `SHS.SHA512.Impl.toU64s`
@@ -21,9 +20,7 @@ theorem to_u64s_closure_call_mut_spec
     ⦃ (val, block') => block' = block₀ ∧
         toUInt64 val = Impl.beU64 (arrayU8ToVec block₀) ⟨j.val, by omega⟩ ⦄ := by
   unfold Extraction.sha512.to_u64s.closure.Insts.CoreOpsFunctionFnMutTupleUsizeU64.call_mut
-  step
-  step
-  step
+  step; step; step
   step with core.array.TryFromArrayCopySlice.try_from.step_spec
     (copyInst := core.marker.CopyU8) (hclone := fun _ => rfl)
     as ⟨ chunk_arr, hOk, hchunk_val ⟩
@@ -43,9 +40,7 @@ theorem to_u64s_closure_call_mut_spec
   refine List.ext_getElem (by simp [htake8]) (fun i h1 _ => ?_)
   rw [List.getElem_take, List.getElem_drop,
       ← getElem!_pos block₀.val (8 * j.val + i) (by omega)]
-  match i, htake8 ▸ h1 with
-  | 0, _ => rfl | 1, _ => rfl | 2, _ => rfl | 3, _ => rfl
-  | 4, _ => rfl | 5, _ => rfl | 6, _ => rfl | 7, _ => rfl
+  match i, htake8 ▸ h1 with | 0, _ | 1, _ | 2, _ | 3, _ | 4, _ | 5, _ | 6, _ | 7, _ => rfl
 
 /-- `to_u64s block` succeeds and equals `Impl.toU64s` after the U64-bridge
 view conversion. -/
@@ -69,21 +64,14 @@ theorem to_u64s_spec (block : Array U8 128#usize) :
       revert h
       cases Extraction.sha512.to_u64s.closure.Insts.CoreOpsFunctionFnMutTupleUsizeU64.call_mut b' j with
       | ok p =>
-        intro h
-        simp only [wp_return] at h ⊢
-        refine ⟨h.1, hj, ?_⟩
-        intro _; rw [hinv]; exact h.2
-      | fail _ => intro h; exact h.elim
-      | div => intro h; exact h.elim
-    · intro f f' j v hf hf' hP
-      subst hf; subst hf'; exact hP
+        intro h; simp only [wp_return] at h ⊢; exact ⟨h.1, hj, fun _ => hinv ▸ h.2⟩
+      | fail _ => exact (·.elim)
+      | div => exact (·.elim)
+    · intro f f' j v hf hf' hP; subst hf hf'; exact hP
   · intro arr h
-    apply Vector.ext
-    intro k hk
-    have hk16 : k < 16 := hk
+    refine Vector.ext fun k hk => ?_
     have hkl : k < arr.val.length := by scalar_tac
-    have hPj := (h k hk16).2 hk16
-    have e1 : (arrayU64ToVec arr)[k]'hk = toUInt64 (arr.val[k]'hkl) := by
-      unfold arrayU64ToVec; simp
+    have hPj := (h k hk).2 hk
+    have e1 : (arrayU64ToVec arr)[k]'hk = toUInt64 (arr.val[k]'hkl) := by simp [arrayU64ToVec]
     rw [e1, show arr.val[k]'hkl = arr.val[k]! from (getElem!_pos arr.val k hkl).symm, hPj]
-    unfold Impl.toU64s; exact (Vector.getElem_ofFn hk16).symm
+    unfold Impl.toU64s; exact (Vector.getElem_ofFn hk).symm

@@ -1,6 +1,7 @@
 import Word.U64
 import Word.ToU64s
 import Sha512.Compress
+import Common.Wp
 import equiv.SHA512.ToU64s
 import Aeneas
 
@@ -11,52 +12,9 @@ import Aeneas
 compression loop `for i in 0..blocks { state ← compress512 state block_i }`
 to `Fin.foldl blocks (Impl.compress · ∘ Impl.toU64sFromBytes)` over the
 byte-array input.
-
-Most contents are spec-only (sorry'd) at this stage.
 -/
 
 open Aeneas Aeneas.Std Result WP SHS.SHA512
-
-/-- Unpack an Aeneas spec hypothesis `act ⦃ post ⦄` into a concrete `ok` witness. -/
-private theorem ok_of_spec {α} {act : Result α} {post : α → Prop}
-    (h : act ⦃ s => post s ⦄) : ∃ v, act = .ok v ∧ post v := by
-  cases hact : act with
-  | ok v => rw [hact] at h; rw [spec_ok] at h; exact ⟨v, rfl, h⟩
-  | fail e => rw [hact] at h; rw [spec_fail] at h; exact h.elim
-  | div => rw [hact] at h; rw [spec_div] at h; exact h.elim
-
-/-- Byte-chunk view of one block.  Re-exported from `Sha256/Loop0.lean`
-in spirit; the proof is generic in `C : Usize` and uses no SHA-256-specific
-machinery.  Stated locally here to avoid an import dependency on the
-SHA-256 side. -/
-theorem arrayU8ToVec_eq_chunk_view_128
-    (data : Slice U8) (i : Usize) (block : Array U8 128#usize)
-    (hbound : i.val * 128 + 128 ≤ data.length)
-    (hblock : ∀ (j : Nat) (hj : j < 128),
-      block.val[j]'(by simpa [block.property] using hj) =
-        data.val[i.val * 128 + j]'(by
-          exact Nat.lt_of_lt_of_le (Nat.add_lt_add_left hj _) hbound)) :
-    arrayU8ToVec block =
-      Vector.ofFn (fun j : Fin 128 =>
-        (sliceToByteArray data).get! (i.val * 128 + j.val)) := by
-  apply Vector.toArray_inj.mp
-  rw [Vector.toArray_ofFn]
-  show (block.val.map toUInt8).toArray = _
-  apply Array.ext
-  · simp [block.property]
-  intro k h1 h2
-  have hkC : k < 128 := by simpa [block.property] using h1
-  rw [Array.getElem_ofFn]
-  rw [show ((block.val.map toUInt8).toArray)[k]'h1
-        = toUInt8 (block.val[k]'(by simpa [block.property] using hkC)) by simp]
-  rw [hblock k hkC]
-  have hidx : i.val * 128 + k < data.val.length := by
-    change ↑i * 128 + k < data.length; omega
-  show toUInt8 _ = ByteArray.get! _ _
-  unfold ByteArray.get!
-  show toUInt8 _ = ((data.val.map toUInt8).toArray)[i.val * 128 + k]!
-  rw [getElem!_pos _ _ (by simp; omega)]
-  simp
 
 /-- The per-block fold-step viewed at the spec level. -/
 @[inline] def loop0_step_512 (data : Slice U8) (blocks : Usize)
@@ -87,23 +45,20 @@ private theorem loop0_action_spec_512
     ⦃ s' => arrayU64ToVec s' =
         SHS.SHA512.Impl.compress (arrayU64ToVec state)
           (SHS.SHA512.Impl.toU64sFromBytes (sliceToByteArray data) (i.val * 128)) ⦄ := by
-  have hi128 : i.val * 128 + 128 ≤ data.length := by nlinarith
+  have hi128 : i.val * 128 + 128 ≤ data.length := by scalar_tac +nonLin
   step as ⟨i1, hi1⟩
   step with core.slice.index.SliceIndexRangeFromUsizeSlice.index.step_spec
     as ⟨s, hs_val, hs_len⟩
   step with core.slice.index.SliceIndexRangeToUsizeSlice.index.step_spec
     as ⟨s1, hs1_val, hs1_len⟩
   unfold core.array.TryFromSharedArraySlice.try_from
-  simp only [show s1.len = 128#usize from by
-    apply UScalar.eq_of_val_eq; exact hs1_len, ↓reduceDIte, bind_tc_ok]
-  simp only [core.result.Result.unwrap, bind_tc_ok]
-  simp only [lift, Array.to_slice, bind_tc_ok]
+  simp only [show s1.len = 128#usize from UScalar.eq_of_val_eq hs1_len, ↓reduceDIte,
+             bind_tc_ok, core.result.Result.unwrap, lift, Array.to_slice]
   set block : Std.Array U8 128#usize := ⟨s1.val, by scalar_tac⟩ with hblock_def
-  set bs : Slice (Std.Array U8 128#usize) := ⟨[block], by simp; scalar_tac⟩ with hbs_def
+  set bs : Slice (Std.Array U8 128#usize) := ⟨[block], by agrind⟩ with hbs_def
   show Extraction.sha512.compress512 state bs ⦃ _ ⦄
   apply spec_mono (compress512_spec state bs)
-  intro out hout
-  rw [hout]
+  intro out hout; rw [hout]
   simp only [hbs_def, List.foldl_cons, List.foldl_nil]
   have hu64 : SHS.SHA512.Impl.toU64s (arrayU8ToVec block) =
         SHS.SHA512.Impl.toU64sFromBytes (sliceToByteArray data) (i.val * 128) := by
@@ -111,16 +66,12 @@ private theorem loop0_action_spec_512
     have hbck : arrayU8ToVec block =
         Vector.ofFn (fun j : Fin 128 =>
           (sliceToByteArray data).get! (i.val * 128 + j.val)) := by
-      apply arrayU8ToVec_eq_chunk_view_128 data i block hi128
-      intro j hj
-      show s1.val[j]'_ = data.val[i.val * 128 + j]'_
-      have hs1_take : s1.val = (s.val).take 128 := by
-        rw [hs1_val]; simp [List.slice]
-      rw [List.getElem_of_eq hs1_take]
-      rw [List.getElem_take]
-      rw [List.getElem_of_eq hs_val]
-      rw [List.getElem_drop]
-      simp [hi1]
+      apply arrayU8ToVec_eq_chunk_view data i block hi128
+      intro j hj; show s1.val[j]'_ = data.val[i.val * 128 + j]'_
+      have hs1_take : s1.val = (s.val).take 128 := by rw [hs1_val]; simp [List.slice]
+      rw [List.getElem_of_eq hs1_take, List.getElem_take,
+          List.getElem_of_eq hs_val, List.getElem_drop]
+      agrind
     rw [hbck]
   rw [hu64]
 
@@ -151,33 +102,22 @@ theorem sha512_inner_loop0_spec
   have haction_view : ∀ (i : Usize) (s : Array U64 8#usize) (h : i.val < blocks.val),
       action i s ⦃ s' => arrayU64ToVec s' = loop0_step_512 data blocks
         (arrayU64ToVec s) ⟨i.val, h⟩ ⦄ := by
-    intro i s h
-    have hact := loop0_action_spec_512 data blocks s hbl i h
-    simp only [haction_def, loop0_step_512]
-    exact hact
+    intro i s h; simp only [haction_def, loop0_step_512]
+    exact loop0_action_spec_512 data blocks s hbl i h
   classical
   set f' : Array U64 8#usize → Fin blocks.val → Array U64 8#usize :=
-    fun s i =>
-      match action ⟨i.val, by have := i.isLt; have hle := blocks.hBounds; omega⟩ s with
-      | .ok v => v
-      | .fail _ => s
-      | .div => s with hf'_def
+    fun s i => match action ⟨i.val, by agrind⟩ s with
+      | .ok v => v | _ => s with hf'_def
   have hf'_spec : ∀ (i : Usize) (s : Array U64 8#usize) (h : i.val < blocks.val),
       action i s ⦃ s' => s' = f' s ⟨i.val, h⟩ ⦄ := by
-    intro i s h
-    obtain ⟨v, hact, _⟩ := ok_of_spec (haction_view i s h)
+    intro i s h; obtain ⟨v, hact, _⟩ := ok_of_spec (haction_view i s h)
     simp only [hf'_def,
-      show (⟨i.val, by scalar_tac⟩ : Usize) = i from UScalar.eq_of_val_eq rfl, hact]
-    rw [spec_ok]
+      show (⟨i.val, by scalar_tac⟩ : Usize) = i from UScalar.eq_of_val_eq rfl, hact]; rw [spec_ok]
   have hf'_to_view : ∀ (i : Fin blocks.val) (s : Array U64 8#usize),
       arrayU64ToVec (f' s i) = loop0_step_512 data blocks (arrayU64ToVec s) i := by
-    intro i s
-    obtain ⟨v, hact, hpost⟩ := ok_of_spec (haction_view
-      ⟨i.val, by have := i.isLt; have hle := blocks.hBounds; omega⟩ s i.isLt)
-    simp only [hf'_def, hact]
-    exact hpost
-  have hloop := range_loop_eq_finFoldl
-    (N := blocks) (init := state) (f := f')
+    intro i s; obtain ⟨v, hact, hpost⟩ := ok_of_spec (haction_view ⟨i.val, by agrind⟩ s i.isLt)
+    simp only [hf'_def, hact]; exact hpost
+  have hloop := range_loop_eq_finFoldl (N := blocks) (init := state) (f := f')
     (action := action) (haction := hf'_spec)
   have hfold_conv :
       ∀ (n : Nat) (hn : n ≤ blocks.val) (s : Array U64 8#usize),
@@ -188,35 +128,16 @@ theorem sha512_inner_loop0_spec
             (fun vs (i : Fin n) =>
               loop0_step_512 data blocks vs ⟨i.val, Nat.lt_of_lt_of_le i.isLt hn⟩)
             (arrayU64ToVec s) := by
-    intro n
-    induction n with
-    | zero =>
-      intro hn s
-      simp [Fin.foldl_zero]
+    intro n; induction n with
+    | zero => simp [Fin.foldl_zero]
     | succ k ih =>
       intro hn s
-      have hk : k ≤ blocks.val := Nat.le_of_succ_le hn
       rw [Fin.foldl_succ_last, Fin.foldl_succ_last]
-      simp only [Fin.val_last]
-      rw [hf'_to_view ⟨k, hn⟩ _]
-      congr 1; exact ih hk s
+      simp only [Fin.val_last]; rw [hf'_to_view ⟨k, hn⟩ _]
+      exact congrArg (loop0_step_512 data blocks · ⟨k, hn⟩) (ih (Nat.le_of_succ_le hn) s)
   have hpost : ∀ (p : Array U64 8#usize), p = Fin.foldl blocks.val f' state →
       arrayU64ToVec p = Fin.foldl blocks.val (loop0_step_512 data blocks) (arrayU64ToVec state) :=
     fun p hp => hp ▸ hfold_conv blocks.val le_rfl state
   refine spec_mono ?_ hpost
-  rw [show action = fun i state => do
-        let i1 ← i * 128#usize
-        let s ←
-          core.slice.index.Slice.index
-            (core.slice.index.SliceIndexRangeFromUsizeSlice U8) data
-            { start := i1 }
-        let s1 ←
-          core.slice.index.Slice.index
-            (core.slice.index.SliceIndexRangeToUsizeSlice U8) s
-            { «end» := 128#usize }
-        let r ← core.array.TryFromSharedArraySlice.try_from 128#usize s1
-        let block ← core.result.Result.unwrap core.fmt.DebugTryFromSliceError r
-        let s2 ← lift (Array.to_slice (Array.make 1#usize [ block ]))
-        Extraction.sha512.compress512 state s2 from haction_def] at hloop
-  simp only [bind_assoc] at hloop
+  simp only [haction_def, bind_assoc] at hloop
   exact hloop

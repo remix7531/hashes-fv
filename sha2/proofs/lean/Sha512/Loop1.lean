@@ -18,9 +18,8 @@ open Aeneas Aeneas.Std Result WP SHS.SHA512
 `to_be_bytes x` directly. -/
 private theorem toUInt8_to_be_bytes_get (x : U64) (k : Nat) (hk : k < 8) :
     toUInt8 ((core.num.U64.to_be_bytes x).val[k]!) =
-      ((toUInt64 x >>> (UInt64.ofNat ((7 - k) * 8))) &&& 0xff).toUInt8 := by
-  show toUInt8 ((x.bv.toBEBytes.map (UScalar.mk (ty := .U8)) : List U8)[k]!) = _
-  exact toUInt8_be_byte x k hk
+      ((toUInt64 x >>> (UInt64.ofNat ((7 - k) * 8))) &&& 0xff).toUInt8 :=
+  toUInt8_be_byte x k hk
 
 /-! ## Loop-level spec via `loop.spec_decr_nat`
 
@@ -69,80 +68,50 @@ theorem sha512_inner_loop1_spec
       cases hadd_eval : iter.start + 1#usize with
       | ok next =>
         intro hadd
-        simp only [wp_return] at hadd
-        simp only [bind_tc_ok]
-        step
-        revert r r_post
-        intro i1 i1_post
+        simp only [wp_return, bind_tc_ok] at hadd ⊢
+        step as ⟨i1, i1_post⟩
         simp only [lift, bind_tc_ok]
         -- 8-byte cascade: 24 more steps (8 byte writes × 3 ops each: getElem + add + update)
-        step; step; step; step; step; step; step; step
-        step; step; step; step; step; step; step; step
-        step; step; step; step; step; step; step; step
-        refine ⟨hend,
-          by rw [hadd]; show iter.start.val + 1 ≤ 8; omega,
-          ?_,
-          by rw [hadd]; show 8 - (iter.start.val + 1) < 8 - iter.start.val; omega⟩
+        iterate 24 step
+        refine ⟨hend, by rw [hadd]; agrind, ?_, by rw [hadd]; agrind⟩
         intro j hj
-        have hns : next.val = iter.start.val + 1 := by rw [hadd]; rfl
-        have hi3v : i3.val = 8 * iter.start.val := by have := i3_post; omega
-        have hi5v : i5.val = 8 * iter.start.val + 1 := by
-          have h5 := i5_post; have h3 := i3_post; omega
-        have hi7v : i7.val = 8 * iter.start.val + 2 := by
-          have h7 := i7_post; have h3 := i3_post; omega
-        have hi9v : i9.val = 8 * iter.start.val + 3 := by
-          have h9 := i9_post; have h3 := i3_post; omega
-        have hi11v : i11.val = 8 * iter.start.val + 4 := by
-          have h11 := i11_post; have h3 := i3_post; omega
-        have hi13v : i13.val = 8 * iter.start.val + 5 := by
-          have h13 := i13_post; have h3 := i3_post; omega
-        have hi15v : i15.val = 8 * iter.start.val + 6 := by
-          have h15 := i15_post; have h3 := i3_post; omega
-        have hi17v : i17.val = 8 * iter.start.val + 7 := by
-          have h17 := i17_post; have h3 := i3_post; omega
+        have hns : next.val = iter.start.val + 1 := hadd
+        have hi3v : i3.val = 8 * iter.start.val := by agrind
+        have hi5v : i5.val = 8 * iter.start.val + 1 := by agrind
+        have hi7v : i7.val = 8 * iter.start.val + 2 := by agrind
+        have hi9v : i9.val = 8 * iter.start.val + 3 := by agrind
+        have hi11v : i11.val = 8 * iter.start.val + 4 := by agrind
+        have hi13v : i13.val = 8 * iter.start.val + 5 := by agrind
+        have hi15v : i15.val = 8 * iter.start.val + 6 := by agrind
+        have hi17v : i17.val = 8 * iter.start.val + 7 := by agrind
         have hout'_len : out'.val.length = 64 := out'.property
         have ha_val : a.val =
-            ((((((((out'.val.set (8*iter.start.val) i2).set
-              (8*iter.start.val+1) i4).set
-              (8*iter.start.val+2) i6).set
-              (8*iter.start.val+3) i8).set
-              (8*iter.start.val+4) i10).set
-              (8*iter.start.val+5) i12).set
-              (8*iter.start.val+6) i14).set
-              (8*iter.start.val+7) i16) := by
-          rw [a_post, out7_post, out6_post, out5_post, out4_post, out3_post,
-              out2_post, out1_post]
+            ((((((((out'.val.set (8*iter.start.val) i2).set (8*iter.start.val+1) i4).set
+              (8*iter.start.val+2) i6).set (8*iter.start.val+3) i8).set
+              (8*iter.start.val+4) i10).set (8*iter.start.val+5) i12).set
+              (8*iter.start.val+6) i14).set (8*iter.start.val+7) i16) := by
+          rw [a_post, out7_post, out6_post, out5_post, out4_post, out3_post, out2_post, out1_post]
           simp [Array.set_val_eq, hi3v, hi5v, hi7v, hi9v, hi11v, hi13v, hi15v, hi17v]
         have key_at : ∀ (k : Nat), k < 8 → a.val[8*iter.start.val + k]! =
             if k = 7 then i16 else if k = 6 then i14 else if k = 5 then i12
             else if k = 4 then i10 else if k = 3 then i8 else if k = 2 then i6
             else if k = 1 then i4 else i2 := by
-          intro k hk
-          rw [ha_val]
-          simp only [List.getElem!_eq_getElem?_getD, List.getElem?_set,
-            List.length_set, hout'_len]
-          split_ifs <;> first | rfl | omega
+          intro k hk; rw [ha_val]
+          simp only [List.getElem!_eq_getElem?_getD, List.getElem?_set, List.length_set, hout'_len]
+          split_ifs <;> first | rfl | agrind
         have key_out : ∀ (k : Nat), (k < 8*iter.start.val ∨ 8*iter.start.val + 8 ≤ k) →
             k < 64 → a.val[k]! = out'.val[k]! := by
-          intro k hk hklt
-          rw [ha_val]
-          simp only [List.getElem!_eq_getElem?_getD, List.getElem?_set,
-            List.length_set, hout'_len]
-          split_ifs <;> first | rfl | omega
+          intro k hk hklt; rw [ha_val]
+          simp only [List.getElem!_eq_getElem?_getD, List.getElem?_set, List.length_set, hout'_len]
+          split_ifs <;> first | rfl | agrind
         have hinv_j := hinv j hj
-        unfold specByte at hinv_j ⊢
-        rw [hns]
+        unfold specByte at hinv_j ⊢; rw [hns]
         by_cases hjblock : j / 8 = iter.start.val
-        · have hj_lt_next : j / 8 < iter.start.val + 1 := by omega
-          simp only [hj_lt_next, ↓reduceIte]
-          have hstate_j : state.val[j / 8]! = i1 := by rw [hjblock, ← i1_post]
-          rw [hstate_j]
-          have hjmod : j % 8 < 8 := Nat.mod_lt j (by norm_num)
-          have hj_eq : j = 8 * iter.start.val + j % 8 := by
-            have := Nat.div_add_mod j 8; omega
+        · simp only [show j / 8 < iter.start.val + 1 from by agrind, ↓reduceIte]
+          rw [show state.val[j / 8]! = i1 from by rw [hjblock, ← i1_post]]
+          have hjmod : j % 8 < 8 := by agrind
           have hkey := key_at (j % 8) hjmod
-          rw [← hj_eq] at hkey
-          rw [hkey]
+          rw [← show j = 8 * iter.start.val + j % 8 from by agrind] at hkey; rw [hkey]
           interval_cases (j % 8) <;> norm_num only <;>
             first
               | (rw [i2_post]; exact toUInt8_to_be_bytes_get i1 0 (by norm_num))
@@ -153,22 +122,15 @@ theorem sha512_inner_loop1_spec
               | (rw [i12_post]; exact toUInt8_to_be_bytes_get i1 5 (by norm_num))
               | (rw [i14_post]; exact toUInt8_to_be_bytes_get i1 6 (by norm_num))
               | (rw [i16_post]; exact toUInt8_to_be_bytes_get i1 7 (by norm_num))
-        · have hk_outside : j < 8*iter.start.val ∨ 8*iter.start.val + 8 ≤ j := by
-            by_contra hc; push Not at hc; apply hjblock; omega
-          rw [key_out j hk_outside hj]
-          by_cases h_lt : j / 8 < iter.start.val <;>
-            simp only [show j / 8 < iter.start.val + 1 ↔ j / 8 < iter.start.val from
-              by constructor <;> omega, h_lt, ↓reduceIte] at hinv_j ⊢
-          all_goals exact hinv_j
-      | fail e => intro h; exact h.elim
-      | div => intro h; exact h.elim
+        · rw [key_out j (by agrind) hj]
+          simp only [show j / 8 < iter.start.val + 1 ↔ j / 8 < iter.start.val
+            from by agrind] at hinv_j ⊢; exact hinv_j
+      | fail _ | div => intro h; exact h.elim
     · simp only [hlt, ↓reduceIte, bind_tc_ok]
-      have hstart : iter.start.val = 8 := by omega
       apply Vector.ext
       intro j hj
-      have hjlt : j < 64 := by simpa using hj
-      have hjwi : j / 8 < 8 := by omega
-      have hjk : j / 8 < iter.start.val := by rw [hstart]; exact hjwi
+      have hjlt : j < 64 := by agrind
+      have hjk : j / 8 < iter.start.val := by agrind
       change (arrayU8ToVec out')[j]'hjlt =
         ((Vector.ofFn fun (k : Fin 64) =>
             let wordIdx : Fin 8 := ⟨k.val / 8, by omega⟩
@@ -176,21 +138,17 @@ theorem sha512_inner_loop1_spec
             (((arrayU64ToVec state)[wordIdx] >>>
                 UInt64.ofNat ((7 - byteIdx) * 8)) &&& 0xff).toUInt8) : Vector UInt8 64)[j]'hjlt
       rw [Vector.getElem_ofFn (h := hjlt)]
-      rw [show (arrayU8ToVec out')[j]'hjlt = toUInt8 (out'.val[j]'(by simpa [out'.property] using hjlt))
+      rw [show (arrayU8ToVec out')[j]'hjlt = toUInt8 (out'.val[j]'(by agrind))
           from arrayU8ToVec_getElem out' j hjlt]
-      rw [show toUInt8 (out'.val[j]'(by rw [out'.property]; omega)) =
-              toUInt8 (out'.val[j]!) by
-            rw [getElem!_pos _ _ (by rw [out'.property]; omega)]]
+      rw [show toUInt8 (out'.val[j]'(by agrind)) = toUInt8 (out'.val[j]!) by
+            rw [getElem!_pos _ _ (by agrind)]]
       rw [hinv j hjlt]
       unfold specByte
       simp only [hjk, ↓reduceIte]
-      have hgs : ((arrayU64ToVec state)[(⟨j/8, hjwi⟩ : Fin 8)]) =
+      have hgs : ((arrayU64ToVec state)[(⟨j/8, by omega⟩ : Fin 8)]) =
           toUInt64 (state.val[j / 8]!) := by
-        show ((arrayU64ToVec state)[j/8]'(by simpa [arrayU64ToVec] using hjwi)) = _
-        rw [arrayU64ToVec_getElem state (j / 8) (by simp; exact hjwi)]
-        congr 1
-        rw [getElem!_pos _ _ (by rw [state.property]; exact hjwi)]
-      rw [show ((arrayU64ToVec state)[(⟨j/8, by omega⟩ : Fin 8)]) =
-            toUInt64 (state.val[j / 8]!) from hgs]
-  · refine ⟨rfl, by simp, ?_⟩
-    intro j _; simp [specByte]
+        show ((arrayU64ToVec state)[j/8]'(by agrind)) = _
+        rw [arrayU64ToVec_getElem state (j / 8) (by agrind)]; fcongr 1
+        rw [getElem!_pos _ _ (by agrind)]
+      rw [hgs]
+  · exact ⟨rfl, by simp, fun _ _ => by simp [specByte]⟩

@@ -3,58 +3,16 @@ import Word.ToU32s
 /-!
 # Per-round body bridge for `compress_u32`
 
-Owns the per-round body bridge: literal-rotation lemmas
-`rotr_bridge_{2,6,…,25}`, the tuple-shaped `tupledRoundStep`, the
-single-iteration body equality `compress_u32_body_spec`,
-and the 64-fold projection `finFoldl_roundStep_eq_tupled`. Split out of
-`Compress.lean` (the body proof is the dominant cost) so that the
-orchestration layer there reads top-down without a 230-line digression.
+Owns the tuple-shaped `tupledRoundStep`, the single-iteration body
+equality `compress_u32_body_spec`, and the 64-fold projection
+`finFoldl_roundStep_eq_tupled`. The literal-rotation lemmas
+(`rotr_bridge_{2,6,7,11,13,17,18,19,22,25}`) live alongside the rest of
+the U32 bridge in `Word/U32.lean`. Split out of `Compress.lean` (the
+body proof is the dominant cost) so that the orchestration layer
+there reads top-down without a 230-line digression.
 -/
 
-
-
 open Aeneas Aeneas.Std Result WP SHS.SHA256
-
-/-! ## Rotation bridges for SHA-256 literal rotations
-
-The Aeneas `UScalar.rotate_right x n#u32` ↔ `Impl.UInt32.rotr` bridge
-needs the side-conditions `0 < n.val < 32`, so we cannot make
-`toUInt32_rotate_right` a `simp` lemma directly. Instead we materialize
-the 10 literal-amount instances actually used by SHA-256
-(2, 6, 7, 11, 13, 17, 18, 19, 22, 25) as side-condition-free lemmas.
-The main proof of `compress_u32_body_spec` rewrites with
-these via `simp only`. -/
-
-private theorem rotr_bridge_2 (x : U32) :
-    toUInt32 (UScalar.rotate_right x 2#u32) = Impl.UInt32.rotr (toUInt32 x) 2 :=
-  toUInt32_rotate_right x 2#u32 (by decide) (by decide)
-private theorem rotr_bridge_6 (x : U32) :
-    toUInt32 (UScalar.rotate_right x 6#u32) = Impl.UInt32.rotr (toUInt32 x) 6 :=
-  toUInt32_rotate_right x 6#u32 (by decide) (by decide)
-private theorem rotr_bridge_7 (x : U32) :
-    toUInt32 (UScalar.rotate_right x 7#u32) = Impl.UInt32.rotr (toUInt32 x) 7 :=
-  toUInt32_rotate_right x 7#u32 (by decide) (by decide)
-private theorem rotr_bridge_11 (x : U32) :
-    toUInt32 (UScalar.rotate_right x 11#u32) = Impl.UInt32.rotr (toUInt32 x) 11 :=
-  toUInt32_rotate_right x 11#u32 (by decide) (by decide)
-private theorem rotr_bridge_13 (x : U32) :
-    toUInt32 (UScalar.rotate_right x 13#u32) = Impl.UInt32.rotr (toUInt32 x) 13 :=
-  toUInt32_rotate_right x 13#u32 (by decide) (by decide)
-private theorem rotr_bridge_17 (x : U32) :
-    toUInt32 (UScalar.rotate_right x 17#u32) = Impl.UInt32.rotr (toUInt32 x) 17 :=
-  toUInt32_rotate_right x 17#u32 (by decide) (by decide)
-private theorem rotr_bridge_18 (x : U32) :
-    toUInt32 (UScalar.rotate_right x 18#u32) = Impl.UInt32.rotr (toUInt32 x) 18 :=
-  toUInt32_rotate_right x 18#u32 (by decide) (by decide)
-private theorem rotr_bridge_19 (x : U32) :
-    toUInt32 (UScalar.rotate_right x 19#u32) = Impl.UInt32.rotr (toUInt32 x) 19 :=
-  toUInt32_rotate_right x 19#u32 (by decide) (by decide)
-private theorem rotr_bridge_22 (x : U32) :
-    toUInt32 (UScalar.rotate_right x 22#u32) = Impl.UInt32.rotr (toUInt32 x) 22 :=
-  toUInt32_rotate_right x 22#u32 (by decide) (by decide)
-private theorem rotr_bridge_25 (x : U32) :
-    toUInt32 (UScalar.rotate_right x 25#u32) = Impl.UInt32.rotr (toUInt32 x) 25 :=
-  toUInt32_rotate_right x 25#u32 (by decide) (by decide)
 
 /-! ## Per-round body of `compress_u32`
 
@@ -118,11 +76,15 @@ theorem compress_u32_body_spec
   · -- branch i < 16
     have hlt' : iter.start < 16#usize := hlt
     simp only [hlt', ↓reduceIte]
-    step ; step ; step ; step ; step ; step ; step ; step ; step ; step
-    step ; step ; step ; step ; step ; step ; step ; step ; step ; step
-    step ; step ; step ; step ; step ; step ; step ; step
+    iterate 28 step
     refine ⟨r, block, a1, a, b, c, e1, e, f, g, r_post, rfl, ?_⟩
     simp only [tupledRoundStep, SHS.SHA256.Impl.roundStep, hlt, ↓reduceDIte]
+    have hw : toUInt32 w =
+        (arrayU32ToVec block)[iter.start.val]'hlt := by
+      rw [w_post, getElem!_pos _ _ (by simp [block.property]; omega),
+          ← arrayU32ToVec_getElem block iter.start.val hlt]; rfl
+    have hK : toUInt32 i9 = Impl.K32[(⟨iter.start.val, hi⟩ : Fin 64)] := by
+      rw [i9_post]; exact K32_eq iter.start.val hi
     refine ⟨trivial, ?_, trivial, trivial, trivial, ?_, trivial, trivial, trivial⟩
     all_goals {
       simp only [← rotr_bridge_2, ← rotr_bridge_6, ← rotr_bridge_11,
@@ -131,13 +93,6 @@ theorem compress_u32_body_spec
         at i1_post i2_post i4_post i12_post i13_post i15_post
       simp only [show core.num.U32.wrapping_add = UScalar.wrapping_add from rfl]
         at *
-      have hw : toUInt32 w =
-          (arrayU32ToVec block)[iter.start.val]'hlt := by
-        rw [w_post, getElem!_pos _ _ (by simp [block.property]; omega),
-            ← arrayU32ToVec_getElem block iter.start.val hlt]
-        rfl
-      have hK : toUInt32 i9 = Impl.K32[(⟨iter.start.val, hi⟩ : Fin 64)] := by
-        rw [i9_post]; exact K32_eq iter.start.val hi
       refine hw ▸ hK ▸ ?_
       have hi3  : i3  = i1  ^^^ i2  := UScalar.eq_of_val_eq i3_post1
       have hs1  : s1  = i3  ^^^ i4  := UScalar.eq_of_val_eq s1_post1
@@ -161,52 +116,38 @@ theorem compress_u32_body_spec
   · -- branch i ≥ 16: schedule extension then same working-var update as above.
     have hlt' : ¬ iter.start < 16#usize := hlt
     simp only [hlt', ↓reduceIte]
-    step ; step ; step ; step ; step ; step ; step ; step ; step ; step
-    step ; step ; step ; step ; step ; step ; step ; step ; step ; step
-    step ; step ; step ; step ; step ; step ; step ; step ; step ; step
-    step ; step ; step ; step ; step ; step ; step ; step ; step ; step
-    step ; step ; step ; step ; step ; step ; step ; step ; step ; step
-    step ; step ; step ; step
+    iterate 54 step
     refine ⟨r, a1, a2, a, b, c, e1, e, f, g, r_post, rfl, ?_⟩
     simp only [tupledRoundStep, SHS.SHA256.Impl.roundStep, hlt, ↓reduceDIte]
+    -- Shared sub-lemmas used by all three conjuncts.
+    have hw15 : toUInt32 w15 =
+        (arrayU32ToVec block)[(iter.start.val - 15) % 16]'(by simp; omega) := by
+      rw [arrayU32ToVec_getElem block _ (by simp; omega), w15_post,
+          getElem!_pos _ _ (by simp [block.property]; omega)]; fcongr 2; rw [i2_post, i1_post1]
+    have hw2 : toUInt32 w2 =
+        (arrayU32ToVec block)[(iter.start.val - 2) % 16]'(by simp; omega) := by
+      rw [arrayU32ToVec_getElem block _ (by simp; omega), w2_post,
+          getElem!_pos _ _ (by simp [block.property]; omega)]; fcongr 2; rw [i8_post, i7_post1]
+    have hw16 : toUInt32 i15 =
+        (arrayU32ToVec block)[(iter.start.val - 16) % 16]'(by simp; omega) := by
+      rw [arrayU32ToVec_getElem block _ (by simp; omega), i15_post,
+          getElem!_pos _ _ (by simp [block.property]; omega)]; fcongr 2; rw [i14_post, i13_post1]
+    have hw7 : toUInt32 i19 =
+        (arrayU32ToVec block)[(iter.start.val - 7) % 16]'(by simp; omega) := by
+      rw [arrayU32ToVec_getElem block _ (by simp; omega), i19_post,
+          getElem!_pos _ _ (by simp [block.property]; omega)]; fcongr 2; rw [i18_post, i17_post1]
+    have h_sh3 : toUInt32 i6 = (toUInt32 w15) >>> 3 := by simp [toUInt32, i6_post2]
+    have h_sh10 : toUInt32 i12 = (toUInt32 w2) >>> 10 := by simp [toUInt32, i12_post2]
+    have hi3  : i3  = UScalar.rotate_right w15 7#u32 := i3_post
+    have hi4  : i4  = UScalar.rotate_right w15 18#u32 := i4_post
+    have hi5  : i5  = i3  ^^^ i4  := UScalar.eq_of_val_eq i5_post1
+    have hs0  : s0  = i5  ^^^ i6  := UScalar.eq_of_val_eq s0_post1
+    have hi9  : i9  = UScalar.rotate_right w2 17#u32 := i9_post
+    have hi10 : i10 = UScalar.rotate_right w2 19#u32 := i10_post
+    have hi11 : i11 = i9  ^^^ i10 := UScalar.eq_of_val_eq i11_post1
+    have hs1  : s1  = i11 ^^^ i12 := UScalar.eq_of_val_eq s1_post1
     refine ⟨?_, ?_, trivial, trivial, trivial, ?_, trivial, trivial, trivial⟩
     · -- Conjunct 1: schedule-write equality.
-      have hw15 : toUInt32 w15 =
-          (arrayU32ToVec block)[(iter.start.val - 15) % 16]'(by simp; omega) := by
-        rw [arrayU32ToVec_getElem block ((iter.start.val - 15) % 16) (by simp; omega)]
-        rw [w15_post, getElem!_pos _ _ (by simp [block.property]; omega)]
-        congr 2
-        rw [i2_post, i1_post1]
-      have hw2 : toUInt32 w2 =
-          (arrayU32ToVec block)[(iter.start.val - 2) % 16]'(by simp; omega) := by
-        rw [arrayU32ToVec_getElem block ((iter.start.val - 2) % 16) (by simp; omega)]
-        rw [w2_post, getElem!_pos _ _ (by simp [block.property]; omega)]
-        congr 2
-        rw [i8_post, i7_post1]
-      have hw16 : toUInt32 i15 =
-          (arrayU32ToVec block)[(iter.start.val - 16) % 16]'(by simp; omega) := by
-        rw [arrayU32ToVec_getElem block ((iter.start.val - 16) % 16) (by simp; omega)]
-        rw [i15_post, getElem!_pos _ _ (by simp [block.property]; omega)]
-        congr 2
-        rw [i14_post, i13_post1]
-      have hw7 : toUInt32 i19 =
-          (arrayU32ToVec block)[(iter.start.val - 7) % 16]'(by simp; omega) := by
-        rw [arrayU32ToVec_getElem block ((iter.start.val - 7) % 16) (by simp; omega)]
-        rw [i19_post, getElem!_pos _ _ (by simp [block.property]; omega)]
-        congr 2
-        rw [i18_post, i17_post1]
-      have h_sh3 : toUInt32 i6 = (toUInt32 w15) >>> 3 := by
-        simp [toUInt32, i6_post2]
-      have h_sh10 : toUInt32 i12 = (toUInt32 w2) >>> 10 := by
-        simp [toUInt32, i12_post2]
-      have hi3  : i3  = UScalar.rotate_right w15 7#u32 := i3_post
-      have hi4  : i4  = UScalar.rotate_right w15 18#u32 := i4_post
-      have hi5  : i5  = i3  ^^^ i4  := UScalar.eq_of_val_eq i5_post1
-      have hs0  : s0  = i5  ^^^ i6  := UScalar.eq_of_val_eq s0_post1
-      have hi9  : i9  = UScalar.rotate_right w2 17#u32 := i9_post
-      have hi10 : i10 = UScalar.rotate_right w2 19#u32 := i10_post
-      have hi11 : i11 = i9  ^^^ i10 := UScalar.eq_of_val_eq i11_post1
-      have hs1  : s1  = i11 ^^^ i12 := UScalar.eq_of_val_eq s1_post1
       subst a1_post
       rw [arrayU32ToVec_set (hi := by simp; omega)]
       congr 1
@@ -219,41 +160,9 @@ theorem compress_u32_body_spec
       rfl
     -- Conjuncts 2 (a2-eq) and 3 (e1-eq): same template as i<16.
     all_goals {
-      have hw15 : toUInt32 w15 =
-          (arrayU32ToVec block)[(iter.start.val - 15) % 16]'(by simp; omega) := by
-        rw [arrayU32ToVec_getElem block ((iter.start.val - 15) % 16) (by simp; omega)]
-        rw [w15_post, getElem!_pos _ _ (by simp [block.property]; omega)]
-        congr 2; rw [i2_post, i1_post1]
-      have hw2 : toUInt32 w2 =
-          (arrayU32ToVec block)[(iter.start.val - 2) % 16]'(by simp; omega) := by
-        rw [arrayU32ToVec_getElem block ((iter.start.val - 2) % 16) (by simp; omega)]
-        rw [w2_post, getElem!_pos _ _ (by simp [block.property]; omega)]
-        congr 2; rw [i8_post, i7_post1]
-      have hw16 : toUInt32 i15 =
-          (arrayU32ToVec block)[(iter.start.val - 16) % 16]'(by simp; omega) := by
-        rw [arrayU32ToVec_getElem block ((iter.start.val - 16) % 16) (by simp; omega)]
-        rw [i15_post, getElem!_pos _ _ (by simp [block.property]; omega)]
-        congr 2; rw [i14_post, i13_post1]
-      have hw7 : toUInt32 i19 =
-          (arrayU32ToVec block)[(iter.start.val - 7) % 16]'(by simp; omega) := by
-        rw [arrayU32ToVec_getElem block ((iter.start.val - 7) % 16) (by simp; omega)]
-        rw [i19_post, getElem!_pos _ _ (by simp [block.property]; omega)]
-        congr 2; rw [i18_post, i17_post1]
       have hK : toUInt32 i30 = Impl.K32[(⟨iter.start.val, hi⟩ : Fin 64)] := by
         rw [i30_post]; exact K32_eq iter.start.val hi
-      have h_sh3 : toUInt32 i6 = (toUInt32 w15) >>> 3 := by
-        simp [toUInt32, i6_post2]
-      have h_sh10 : toUInt32 i12 = (toUInt32 w2) >>> 10 := by
-        simp [toUInt32, i12_post2]
       refine hw15 ▸ hw2 ▸ hw16 ▸ hw7 ▸ hK ▸ ?_
-      have hi3  : i3  = UScalar.rotate_right w15 7#u32 := i3_post
-      have hi4  : i4  = UScalar.rotate_right w15 18#u32 := i4_post
-      have hi5  : i5  = i3  ^^^ i4  := UScalar.eq_of_val_eq i5_post1
-      have hs0  : s0  = i5  ^^^ i6  := UScalar.eq_of_val_eq s0_post1
-      have hi9  : i9  = UScalar.rotate_right w2 17#u32 := i9_post
-      have hi10 : i10 = UScalar.rotate_right w2 19#u32 := i10_post
-      have hi11 : i11 = i9  ^^^ i10 := UScalar.eq_of_val_eq i11_post1
-      have hs1  : s1  = i11 ^^^ i12 := UScalar.eq_of_val_eq s1_post1
       have hi22 : i22 = UScalar.rotate_right e 6#u32 := i22_post
       have hi23 : i23 = UScalar.rotate_right e 11#u32 := i23_post
       have hi24 : i24 = i22 ^^^ i23 := UScalar.eq_of_val_eq i24_post1
@@ -311,20 +220,11 @@ theorem finFoldl_roundStep_eq_tupled
           tupledRoundStep i s) n init_tup := by
     intro n hn
     induction n with
-    | zero =>
-      simp only [partialFinFoldl_zero]
-      exact h0
+    | zero => simp only [partialFinFoldl_zero]; exact h0
     | succ k ih =>
       have hk : k < 64 := hn
-      have hk' : k ≤ 64 := Nat.le_of_lt hk
-      have ih' := ih hk'
-      rw [partialFinFoldl_succ 64 _ k hk,
-          partialFinFoldl_succ 64 _ k hk]
-      rw [← ih']
+      rw [partialFinFoldl_succ 64 _ k hk, partialFinFoldl_succ 64 _ k hk,
+          ← ih (Nat.le_of_lt hk)]
       simp only [tupledRoundStep, proj]
   have hbridge := hfold_eq 64 (le_refl _)
-  rw [partialFinFoldl_full,
-      partialFinFoldl_full] at hbridge
-  exact hbridge
-
-
+  rwa [partialFinFoldl_full, partialFinFoldl_full] at hbridge

@@ -11,6 +11,12 @@ Bridges the Aeneas-extracted `core.array.Array.index` (with a
 Used by SHA-224 (28 from 32), SHA-384 (48 from 64),
 SHA-512/224 (28 from 64), SHA-512/256 (32 from 64), and similar
 truncations.
+
+In addition to the low-level `array_truncate_spec`, this module
+provides `inner_truncate_digest_spec` — a one-shot wrapper that
+encapsulates the entire `inner_call >>= truncate_chain` pattern
+used by the four truncated FIPS bridges (SHA-224, SHA-384,
+SHA-512/256, SHA-512/224).
 -/
 
 open Aeneas Aeneas.Std Result WP
@@ -30,31 +36,45 @@ theorem array_truncate_spec
                 core.marker.CopyU8 s
       core.result.Result.unwrap core.fmt.DebugTryFromSliceError r)
     ⦃ out => (arrayU8ToVec out).toList = target.toList.take N.val ⦄ := by
-  have hsv_len : state.val.length = M.val := by
-    have := state.property; simp
   -- Step 1: `Array.index` reduces to slice indexing.
   step as ⟨s1, hs1_val, hs1_len⟩
   -- Step 2: `try_from` returns `.Ok` with `arr.val = s1.val`.
-  have hlen_s1 : s1.length = N.val := by
-    have := hs1_len; simpa using this
-  have hclone : ∀ x : U8, core.marker.CopyU8.cloneInst.clone x = Result.ok x := by
-    intro x; rfl
   apply spec_bind
     (core.array.TryFromArrayCopySlice.try_from.step_spec
-       N core.marker.CopyU8 s1 hlen_s1 hclone)
+       N core.marker.CopyU8 s1 hs1_len (fun _ => rfl))
   rintro r ⟨arr, hr_eq, harr_val⟩
   -- Step 3: `Result.unwrap` extracts the array.
   apply spec_mono
     (core.result.Result.unwrap.step_spec core.fmt.DebugTryFromSliceError r arr hr_eq)
   intro out hout
-  rw [hout]
-  have harr_eq : arr.val = state.val.take N.val := by
-    rw [harr_val, hs1_val, List.slice_zero_j, Array.val_to_slice]
-  have hLeq : (arrayU8ToVec arr).toList = arr.val.map toUInt8 := by
-    show ((arr.val.map toUInt8).toArray).toList = arr.val.map toUInt8
-    simp
-  have hTeq : target.toList = state.val.map toUInt8 := by
-    rw [← htarget]
-    show ((state.val.map toUInt8).toArray).toList = state.val.map toUInt8
-    simp
-  rw [hLeq, harr_eq, hTeq, List.map_take]
+  simp [hout, arrayU8ToVec, harr_val, hs1_val, List.slice_zero_j, Array.val_to_slice,
+        ← htarget, List.map_take]
+
+/-- Generic refinement for the `inner_call >>= truncate-chain` body shared by
+SHA-224 / SHA-384 / SHA-512/256 / SHA-512/224. Given an inner-spec
+witnessing `arrayU8ToVec inner_out = full` and a take-equality
+`truncated.toList = full.toList.take N`, the composed action satisfies
+`arrayU8ToVec out = truncated`.
+
+Each caller (e.g., `sha224_impl_spec`) invokes this with:
+  * `inner` = the `sha2_inner_spec[_512]` application at the relevant IV,
+  * `take_eq` = the `Local.<algo>_eq_sha2Inner<256|512>_take` lemma. -/
+theorem inner_truncate_digest_spec
+    {M N : Usize} (hNM : N.val ≤ M.val)
+    (inner : Result (Array U8 M))
+    (full_digest : Vector UInt8 M.val) (truncated : Vector UInt8 N.val)
+    (hinner : inner ⦃ out => arrayU8ToVec out = full_digest ⦄)
+    (take_eq : truncated.toList = full_digest.toList.take N.val) :
+    (do
+      let inner_out ← inner
+      let s ←
+        core.array.Array.index (core.ops.index.IndexSlice
+          (core.slice.index.SliceIndexRangeToUsizeSlice U8)) inner_out
+          { «end» := N }
+      let r ← core.array.TryFromArrayCopySlice.try_from N
+                core.marker.CopyU8 s
+      core.result.Result.unwrap core.fmt.DebugTryFromSliceError r)
+    ⦃ out => arrayU8ToVec out = truncated ⦄ := by
+  refine spec_bind hinner (fun inner_out hinner_out => ?_)
+  refine spec_mono (array_truncate_spec hNM inner_out full_digest hinner_out) (fun out hout => ?_)
+  exact Vector.toList_inj.mp (hout.trans take_eq.symm)

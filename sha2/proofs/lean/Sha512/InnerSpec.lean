@@ -21,6 +21,45 @@ The U128 length tag is bridged via `total_bits_bv_eq_u128_shifted`,
 
 open Aeneas Aeneas.Std Result WP SHS.SHA512
 
+/-- Bridge: `UInt64.ofNat (data.length * 8) = data.length.toUInt64 <<< 3`,
+under the FIPS 180-4 length cap `data.length < 2 ^ 61`. -/
+private theorem hbridge_u64_aux (n : Nat) (h : n < 2 ^ 61) :
+    UInt64.ofNat (n * 8) = n.toUInt64 <<< 3 := by
+  apply UInt64.toBitVec_inj.mp
+  show BitVec.ofNat 64 (n * 8) = _
+  simp only [UInt64.toBitVec_shiftLeft]
+  apply BitVec.eq_of_toNat_eq
+  simp only [BitVec.toNat_ofNat]
+  show n * 8 % 2 ^ 64 =
+        (n.toUInt64.toBitVec.toNat <<< ((3 : UInt64).toBitVec.toNat % 64)) % 2 ^ 64
+  rw [show n.toUInt64.toBitVec.toNat = n % 2 ^ 64 from rfl,
+      show (3 : UInt64).toBitVec.toNat = 3 from rfl,
+      show (3 % 64 : Nat) = 3 from rfl,
+      Nat.mod_eq_of_lt (show n < 2 ^ 64 by
+        have : (2 : Nat) ^ 61 < 2 ^ 64 := by decide
+        omega),
+      Nat.shiftLeft_eq]
+
+/-- For `i ∈ [112, 128)`, the U128 BE shift-mask byte of `BitVec.ofNat 128 (n * 8)`
+splits as: zero for `i ∈ [112, 120)`, U64 shift-mask of `n.toUInt64 <<< 3` for
+`i ∈ [120, 128)`, under the FIPS 180-4 length cap `n < 2 ^ 61`. -/
+private theorem u128_be_byte_match_aux (n : Nat) (h : n < 2 ^ 61) (i : Nat)
+    (hi112 : ¬ i < 112) (hi128 : i < 128) :
+    (⟨BitVec.setWidth 8
+        ((BitVec.ofNat 128 (n * 8) >>> ((127 - i) * 8)) &&&
+          255#128)⟩ : UInt8) =
+      (if i < 120 then 0
+       else ((n.toUInt64 <<< 3 >>> ((127 - i) * 8).toUInt64) &&& 255).toUInt8 : UInt8) := by
+  have hlen8 : n * 8 < 2 ^ 64 := by
+    have : (2 : Nat) ^ 61 * 8 = 2 ^ 64 := by decide
+    have := (Nat.mul_lt_mul_right (by decide : (0 : Nat) < 8)).mpr h; omega
+  rw [show (127 - i) = 15 - (i - 112) from by omega]
+  by_cases hi120 : i < 120
+  · rw [if_pos hi120]
+    exact u128_be_byte_high_zero (n * 8) hlen8 (i - 112) (by omega)
+  · rw [if_neg hi120, u128_be_byte_low_eq_u64 (n * 8) hlen8 (i - 112) (by omega) (by omega),
+        hbridge_u64_aux n h]
+
 set_option maxHeartbeats 4000000 in
 set_option maxRecDepth 4000 in
 /-- IV-generic version: for any IV `iv` whose `arrayU64ToVec` view is
@@ -39,14 +78,12 @@ theorem sha2_inner_spec_512
   unfold Extraction.sha512_inner
   step
   · show (7 : Int) < (System.Platform.numBits : Int)
-    have h := System.Platform.numBits_eq
-    rcases h with h | h <;> rw [h] <;> decide
+    obtain h | h := System.Platform.numBits_eq <;> rw [h] <;> decide
   step
+  have hblocks : (out.val : Nat) = data.length / 128 := by
+    rw [out_post1, Nat.shiftRight_eq_div_pow]; rfl
   have hbl : out.val * 128 ≤ data.length := by
-    have h1 : (↑out : Nat) = data.length / 128 := by
-      rw [out_post1, Nat.shiftRight_eq_div_pow]; rfl
-    rw [h1]
-    exact Nat.div_mul_le_self data.length 128
+    rw [hblocks]; exact Nat.div_mul_le_self data.length 128
   have hloop0 :
       Extraction.sha512_inner_loop0 ⟨0#usize, out⟩ data iv
       ⦃ s => arrayU64ToVec s =
@@ -55,33 +92,21 @@ theorem sha2_inner_spec_512
     intro s hs; rw [hs, hiv]
   apply spec_bind hloop0
   intro state hstate
-  step
-  step
+  iterate 2 step
   have hrem_mod : remaining.val = data.length % 128 := by
     rw [remaining_post1]
     show ((data.len.val : Nat) &&& 127) = data.length % 128
-    have : (data.len.val) &&& (2^7 - 1) = data.len.val % 2^7 :=
-      Nat.and_two_pow_sub_one_eq_mod _ _
-    simpa using this
-  have hblocks : (out.val : Nat) = data.length / 128 := by
-    rw [out_post1, Nat.shiftRight_eq_div_pow]; rfl
-  have hsum : out.val * 128 + remaining.val = data.length := by
-    rw [hrem_mod, hblocks]
-    have := Nat.div_add_mod data.length 128
-    omega
-  have hrem_lt : remaining.val < 128 := by rw [hrem_mod]; exact Nat.mod_lt _ (by decide)
+    simpa using Nat.and_two_pow_sub_one_eq_mod (n := 7) data.len.val
   step as ⟨discr1, hd1⟩
   obtain ⟨s, index_mut_back⟩ := discr1
   step as ⟨i4, hi4_v⟩
   step as ⟨s1, hs1_drop, hs1_len⟩
   have hcopy_len : s.length = s1.length := by
-    rw [hd1.2.1, hs1_len, hi4_v]
-    omega
+    rw [hd1.2.1, hs1_len, hi4_v]; omega
   apply spec_bind (core.slice.Slice.copy_from_slice.step_spec _ s s1 hcopy_len)
   intro s2 hs2_eq
   have hbound1 : remaining.val < (index_mut_back s2).length := by
-    have hlen : (index_mut_back s2).length = 128 := (index_mut_back s2).property
-    omega
+    have : (index_mut_back s2).length = 128 := (index_mut_back s2).property; omega
   apply spec_bind (Std.Array.index_mut_usize_spec (index_mut_back s2) remaining hbound1)
   rintro ⟨val_at_rem, set_back⟩ ⟨hset_back, hval_at⟩
   set vA : Vector UInt8 128 := Vector.ofFn fun i : Fin 128 =>
@@ -94,22 +119,18 @@ theorem sha2_inner_spec_512
     intro i hi
     have hsb_len : (set_back 128#u8).val.length = 128 := (set_back 128#u8).property
     have hs2v : s2.val = data.val.drop (out.val * 128) := by rw [← hs2_eq, hs1_drop, hi4_v]
-    have hs2_len : s2.val.length = data.length - out.val * 128 := by
-      rw [hs2v]; simp [List.length_drop]
+    have hs2_len : s2.val.length = data.length - out.val * 128 := by simp [hs2v]
     have hsb_val : (set_back 128#u8).val =
         ((List.replicate 128 (0#u8 : U8)).setSlice! 0 s2.val).set remaining.val 128#u8 := by
       rw [hset_back]; show (index_mut_back s2).val.set remaining.val (128#u8 : U8) = _
       rw [hd1.2.2 s2, Array.repeat_val]; rfl
-    rw [List.Inhabited_getElem_eq_getElem! _ _ (by rw [hsb_len]; exact hi), hsb_val]
-    have hvA_get : vA[i]'(by omega) =
-        if i < remaining.val then (sliceToByteArray data).get! (out.val * 128 + i)
-        else if i = remaining.val then (128 : UInt8) else 0 := by
-      show (Vector.ofFn _)[i]'(by omega) = _; rw [Vector.getElem_ofFn]
-    rw [hvA_get]
-    have hsetSlice_len : ((List.replicate 128 (0#u8 : U8)).setSlice! 0 s2.val).length = 128 := by
-      rw [List.length_setSlice!, List.length_replicate]
+    rw [List.Inhabited_getElem_eq_getElem! _ _ (by rw [hsb_len]; exact hi), hsb_val,
+        show vA[i]'(by omega) =
+          (if i < remaining.val then (sliceToByteArray data).get! (out.val * 128 + i)
+           else if i = remaining.val then (128 : UInt8) else 0) by
+        show (Vector.ofFn _)[i]'(by omega) = _; rw [Vector.getElem_ofFn]]
     by_cases hieq : i = remaining.val
-    · rw [hieq, List.getElem!_set _ _ _ (by rw [hsetSlice_len]; omega),
+    · rw [hieq, List.getElem!_set _ _ _ (by simp; omega),
         if_neg (show ¬ remaining.val < remaining.val from by omega), if_pos rfl]; rfl
     · rw [List.getElem!_set_ne _ remaining.val i 128#u8
             (by show Nat.not_eq remaining.val i; unfold Nat.not_eq; omega)]
@@ -121,10 +142,10 @@ theorem sha2_inner_spec_512
         have hd_idx : out.val * 128 + i < data.length := by scalar_tac
         rw [getElem!_pos s2.val i hi_in_s2,
           show s2.val[i]'hi_in_s2 = (data.val.drop (out.val * 128))[i]'(hs2v ▸ hi_in_s2)
-            from by congr 1, List.getElem_drop]
+            from by fcongr 1, List.getElem_drop]
         show _ = (⟨(data.val.map toUInt8).toArray⟩ : ByteArray).get! (out.val * 128 + i)
         have hda_idx : out.val * 128 + i < (data.val.map toUInt8).toArray.size := by
-          simp; exact hd_idx
+          simpa using hd_idx
         rw [show ((⟨(data.val.map toUInt8).toArray⟩ : ByteArray).get! (out.val * 128 + i)) =
             (data.val.map toUInt8).toArray[out.val * 128 + i]! from rfl,
           getElem!_pos (data.val.map toUInt8).toArray (out.val * 128 + i) hda_idx]
@@ -134,25 +155,21 @@ theorem sha2_inner_spec_512
           List.getElem!_replicate _ (show i < 128 from by omega)]
         show toUInt8 (0#u8 : U8) = _
         rw [if_neg (show ¬ i < remaining.val from by omega), if_neg hieq]; rfl
-  /- Total bits bridge: U128 BV equals `BitVec.ofNat 128 (data.length * 8)`. -/
   have htotal_bv : total_bits.bv = BitVec.ofNat 128 (data.length * 8) := by
-    have h1 : total_bits.bv = i3.bv <<< 3 := total_bits_post2
-    have h2 : i3 = UScalar.cast UScalarTy.U128 data.len := i3_post
-    rw [h1, h2]
-    have := total_bits_bv_eq_u128_shifted data h
-    show ((UScalar.cast UScalarTy.U128 data.len).bv <<< 3) = _
-    convert this using 0
-  /- Combined: the Aeneas final-block byte at `i ∈ [112..128)` equals the
-     Impl byte (either zero for `i < 120` or U64-shift-mask for `i ≥ 120`). -/
-  have hlen8 : data.length * 8 < 2 ^ 64 := by
-    have h1 : (2 : Nat) ^ 61 * 8 = 2 ^ 64 := by decide
-    have h2 : (0 : Nat) < 8 := by decide
-    have h3 := (Nat.mul_lt_mul_right h2).mpr h
-    omega
+    rw [show total_bits.bv = i3.bv <<< 3 from total_bits_post2,
+        show i3 = UScalar.cast UScalarTy.U128 data.len from i3_post]
+    exact total_bits_bv_eq_u128_shifted data h
+  have hstate_prefix : arrayU64ToVec state =
+      Fin.foldl (data.length / 128)
+        (fun s i => SHS.SHA512.Impl.compress s
+          (SHS.SHA512.Impl.toU64sFromBytes (sliceToByteArray data) (i.val * 128)))
+        iv_vec := by rw [hstate, ← hblocks]; rfl
+  have hvA_eq : vA = Vector.ofFn (fun k : Fin 128 =>
+      if k.val < data.length % 128 then (sliceToByteArray data).get! (data.length / 128 * 128 + k.val)
+      else if k.val = data.length % 128 then 128 else 0) := by
+    rw [hvA_def, hrem_mod, hblocks]
   by_cases hge : remaining ≥ 112#usize
-  · simp only [hge, ↓reduceIte]
-    have hrem_ge112 : 112 ≤ remaining.val := by have hh := hge; scalar_tac
-    simp only [lift, bind_tc_ok, bind_assoc]
+  · simp only [hge, ↓reduceIte, lift, bind_tc_ok, bind_assoc]
     set sb1 := (Array.make 1#usize [set_back 128#u8] List.length_singleton).to_slice with hsb1_def
     have hsb1_val : sb1.val = [set_back 128#u8] := by rw [hsb1_def, Array.val_to_slice]; rfl
     apply spec_bind (compress512_spec state sb1)
@@ -172,13 +189,9 @@ theorem sha2_inner_spec_512
           simp; omega) = (0#u8 : U8) := by
         have hval : (Array.repeat 128#usize (0#u8 : U8)).val = List.replicate 128 (0#u8 : U8) :=
           Array.repeat_val 128#usize (0#u8 : U8)
-        conv_lhs => rw [List.Inhabited_getElem_eq_getElem! _ _ (by
-          simp; omega)]
+        conv_lhs => rw [List.Inhabited_getElem_eq_getElem! _ _ (by simp; omega)]
         rw [hval, List.getElem!_replicate _ (show i < 128 from by omega)]
-      rw [hbyte]
-      show toUInt8 (0#u8 : U8) = vB[i]
-      rw [hvB_def, Vector.getElem_replicate]
-      rfl
+      rw [hbyte, hvB_def, Vector.getElem_replicate]; rfl
     have hpad := padded_block_spec_512 (Array.repeat 128#usize 0#u8) vB hlow_zero total_bits
     show WP.spec (do
         let (s3, index_mut_back2) ←
@@ -207,13 +220,6 @@ theorem sha2_inner_spec_512
     apply spec_mono (sha512_inner_loop1_spec state2 (Array.repeat 64#usize 0#u8))
     intro out hout; rw [hout]
     unfold Local.sha2Inner512 SHS.SHA512.Impl.sha512State
-    have hsz : (sliceToByteArray data).size = data.length := by simp
-    have hvA_eq : vA = Vector.ofFn (fun k : Fin 128 =>
-        if k.val < data.length % 128 then (sliceToByteArray data).get! (data.length / 128 * 128 + k.val)
-        else if k.val = data.length % 128 then 128 else 0) := by
-      rw [hvA_def, hrem_mod, hblocks]
-    /- The Aeneas-side final block: bytes [0..112) = vB (= 0), bytes
-       [112..128) = U128 BE shift-mask of total_bits. -/
     have hfb_full : arrayU8ToVec fb =
         Vector.ofFn (fun i : Fin 128 =>
           if i.val < 112 then (0 : UInt8)
@@ -222,41 +228,8 @@ theorem sha2_inner_spec_512
       rw [hfb]; apply Vector.ext; intro i hi; simp only [Vector.getElem_ofFn]
       by_cases hi112 : i < 112
       · rw [if_pos hi112, if_pos hi112, hvB_def]; simp
-      · rw [if_neg hi112, if_neg hi112]
-        rw [htotal_bv]
-        by_cases hi120 : i < 120
-        · rw [if_pos hi120]
-          have hk : i - 112 < 8 := by omega
-          rw [show (127 - i) = 15 - (i - 112) from by omega]
-          exact u128_be_byte_high_zero (data.length * 8) hlen8 (i - 112) hk
-        · rw [if_neg hi120]
-          have hk_lo : 8 ≤ i - 112 := by omega
-          have hk_hi : i - 112 < 16 := by omega
-          rw [show (127 - i) = 15 - (i - 112) from by omega]
-          rw [u128_be_byte_low_eq_u64 (data.length * 8) hlen8 (i - 112) hk_lo hk_hi]
-          /- Bridge `UInt64.ofNat (data.length * 8) = data.length.toUInt64 <<< 3`. -/
-          have hbridge_u64 : UInt64.ofNat (data.length * 8) = data.length.toUInt64 <<< 3 := by
-            apply UInt64.toBitVec_inj.mp
-            show BitVec.ofNat 64 (data.length * 8) = _
-            simp only [UInt64.toBitVec_shiftLeft]
-            apply BitVec.eq_of_toNat_eq
-            simp only [BitVec.toNat_ofNat]
-            show data.length * 8 % 2 ^ 64 =
-                  ((data.length.toUInt64).toBitVec.toNat <<< ((3 : UInt64).toBitVec.toNat % 64)) % 2 ^ 64
-            have h1 : (data.length.toUInt64).toBitVec.toNat = data.length % 2 ^ 64 := rfl
-            have h2 : (3 : UInt64).toBitVec.toNat = 3 := rfl
-            rw [h1, h2]
-            rw [show (3 % 64 : Nat) = 3 from rfl]
-            rw [Nat.mod_eq_of_lt (show data.length < 2 ^ 64 by
-              have h61 : (2 : Nat) ^ 61 < 2 ^ 64 := by decide
-              omega)]
-            rw [Nat.shiftLeft_eq]
-          rw [hbridge_u64]
-    have hstate_prefix : arrayU64ToVec state =
-        Fin.foldl (data.length / 128)
-          (fun s i => SHS.SHA512.Impl.compress s
-            (SHS.SHA512.Impl.toU64sFromBytes (sliceToByteArray data) (i.val * 128)))
-          iv_vec := by rw [hstate, ← hblocks]; rfl
+      · rw [if_neg hi112, if_neg hi112, htotal_bv]
+        exact u128_be_byte_match_aux data.length h i hi112 (by simpa using hi)
     have hstate_full : arrayU64ToVec stateA =
         SHS.SHA512.Impl.compress
           (Fin.foldl (data.length / 128)
@@ -268,7 +241,7 @@ theorem sha2_inner_spec_512
             else if k.val = data.length % 128 then 128 else 0))) := by
       rw [hstateA, hstate_prefix, ← hvA_eq]
     have hcond : ¬ data.length % 128 < 112 := by rw [← hrem_mod]; simp at hge; omega
-    rw [hstate2, hstate_full, hfb_full]; simp only [hsz, if_neg hcond]; rfl
+    rw [hstate2, hstate_full, hfb_full]; simp only [sliceToByteArray_size, if_neg hcond]; rfl
   · simp only [hge, ↓reduceIte]
     have hrem_lt112 : remaining.val < 112 := by simp at hge; scalar_tac
     have hpad := padded_block_spec_512 (set_back 128#u8) vA
@@ -302,13 +275,7 @@ theorem sha2_inner_spec_512
     apply spec_mono (sha512_inner_loop1_spec state2 (Array.repeat 64#usize 0#u8))
     intro out hout; rw [hout]
     unfold Local.sha2Inner512 SHS.SHA512.Impl.sha512State
-    have hsz : (sliceToByteArray data).size = data.length := by simp
-    apply Vector.ext; intro j hj
-    simp only [Vector.getElem_ofFn]
-    have hvA_eq : vA = Vector.ofFn (fun k : Fin 128 =>
-        if k.val < data.length % 128 then (sliceToByteArray data).get! (data.length / 128 * 128 + k.val)
-        else if k.val = data.length % 128 then 128 else 0) := by
-      rw [hvA_def, hrem_mod, hblocks]
+    apply Vector.ext; intro j hj; simp only [Vector.getElem_ofFn]
     have hfb_full : arrayU8ToVec fb =
         Vector.ofFn (fun i : Fin 128 =>
           if i.val < 112 then
@@ -320,40 +287,7 @@ theorem sha2_inner_spec_512
       rw [hfb, ← hvA_eq]; apply Vector.ext; intro i hi; simp only [Vector.getElem_ofFn]
       by_cases hi112 : i < 112
       · rw [if_pos hi112, if_pos hi112]
-      · rw [if_neg hi112, if_neg hi112]
-        rw [htotal_bv]
-        by_cases hi120 : i < 120
-        · rw [if_pos hi120]
-          have hk : i - 112 < 8 := by omega
-          rw [show (127 - i) = 15 - (i - 112) from by omega]
-          exact u128_be_byte_high_zero (data.length * 8) hlen8 (i - 112) hk
-        · rw [if_neg hi120]
-          have hk_lo : 8 ≤ i - 112 := by omega
-          have hk_hi : i - 112 < 16 := by omega
-          rw [show (127 - i) = 15 - (i - 112) from by omega]
-          rw [u128_be_byte_low_eq_u64 (data.length * 8) hlen8 (i - 112) hk_lo hk_hi]
-          /- Bridge `UInt64.ofNat (data.length * 8) = data.length.toUInt64 <<< 3`. -/
-          have hbridge_u64 : UInt64.ofNat (data.length * 8) = data.length.toUInt64 <<< 3 := by
-            apply UInt64.toBitVec_inj.mp
-            show BitVec.ofNat 64 (data.length * 8) = _
-            simp only [UInt64.toBitVec_shiftLeft]
-            apply BitVec.eq_of_toNat_eq
-            simp only [BitVec.toNat_ofNat]
-            show data.length * 8 % 2 ^ 64 =
-                  ((data.length.toUInt64).toBitVec.toNat <<< ((3 : UInt64).toBitVec.toNat % 64)) % 2 ^ 64
-            have h1 : (data.length.toUInt64).toBitVec.toNat = data.length % 2 ^ 64 := rfl
-            have h2 : (3 : UInt64).toBitVec.toNat = 3 := rfl
-            rw [h1, h2]
-            rw [show (3 % 64 : Nat) = 3 from rfl]
-            rw [Nat.mod_eq_of_lt (show data.length < 2 ^ 64 by
-              have h61 : (2 : Nat) ^ 61 < 2 ^ 64 := by decide
-              omega)]
-            rw [Nat.shiftLeft_eq]
-          rw [hbridge_u64]
-    have hstate_full : arrayU64ToVec state =
-        Fin.foldl (data.length / 128)
-          (fun s i => SHS.SHA512.Impl.compress s
-            (SHS.SHA512.Impl.toU64sFromBytes (sliceToByteArray data) (i.val * 128)))
-          iv_vec := by rw [hstate, ← hblocks]; rfl
+      · rw [if_neg hi112, if_neg hi112, htotal_bv]
+        exact u128_be_byte_match_aux data.length h i hi112 (by simpa using hi)
     have hcond : data.length % 128 < 112 := by rw [← hrem_mod]; exact hrem_lt112
-    rw [hstate2, hstate_full, hfb_full]; simp only [hsz, if_pos hcond]; rfl
+    rw [hstate2, hstate_prefix, hfb_full]; simp only [sliceToByteArray_size, if_pos hcond]; rfl

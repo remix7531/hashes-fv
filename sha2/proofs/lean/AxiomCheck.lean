@@ -16,6 +16,17 @@ and the per-algorithm Impl↔Spec proof from `fips-pub-180-4-lean`. -/
 #print axioms Aeneas.Std.range_loop_eq_finFoldl
 #print axioms Aeneas.Std.core.array.from_fn_aux_state_spec
 
+/-! ## Load-bearing intermediate refinements (audited for reference).
+These specs feed the public `_spec` theorems below and share the same
+axiom set; auditing them documents the trust chain explicitly. -/
+#print axioms _root_.compress_u32_spec
+#print axioms _root_.compress_u64_spec
+#print axioms _root_.sha2_inner_spec
+#print axioms _root_.sha2_inner_spec_512
+#print axioms _root_.inner_truncate_digest_spec
+#print axioms _root_.padded_block_spec
+#print axioms _root_.padded_block_spec_512
+
 /-! ## SHA-256 family — load-bearing trust statement. -/
 #print axioms _root_.sha256_spec
 #print axioms _root_.sha224_spec

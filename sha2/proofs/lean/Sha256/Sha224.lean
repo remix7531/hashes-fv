@@ -21,17 +21,11 @@ private theorem sha224_impl_spec (data : Slice U8) (h : data.length < 2 ^ 61) :
     Extraction.sha224 data
     ⦃ out => arrayU8ToVec out = Impl.sha224 (sliceToByteArray data) ⦄ := by
   unfold Extraction.sha224
-  apply spec_bind (sha2_inner_spec Extraction.consts.H256_224 Impl.H256_224
-                                    Local.H256_224_eq data h)
-  intro inner_out hinner
-  apply spec_mono
-    (array_truncate_spec (by decide : (28#usize : Usize).val ≤ (32#usize : Usize).val)
-       inner_out _ hinner)
-  intro out hout
-  apply Vector.toList_inj.mp
-  rw [hout]
-  exact (Local.sha224_eq_sha2Inner256_take (sliceToByteArray data)
-        (by simpa [sliceToByteArray_size] using h)).symm
+  exact inner_truncate_digest_spec
+    (by decide : (28#usize : Usize).val ≤ (32#usize : Usize).val) _ _ _
+    (sha2_inner_spec Extraction.consts.H256_224 Impl.H256_224 Local.H256_224_eq data h)
+    (Local.sha224_eq_sha2Inner256_take (sliceToByteArray data)
+        (by simpa [sliceToByteArray_size] using h))
 
 /-- Public top-level spec: the Aeneas-extracted `sha224` returns the
 same 224-bit digest as the FIPS-180-4 bitwise spec `SHS.SHA256.sha224`. -/
@@ -42,8 +36,6 @@ theorem sha224_spec (data : Slice U8) (h : data.length < 2 ^ 61) :
           SHS.SHA256.sha224 (sliceBitMessage data)
             (sliceBitMessage_lt_2_64 data h) ⦄ := by
   apply spec_mono (sha224_impl_spec data h)
-  intro out hout
-  rw [hout]
+  intro out hout; rw [hout]
   show SHS.Equiv.SHA256.Digest.digestBitVec224 (Impl.sha224 _) = _
-  exact SHS.Equiv.SHA256.sha224_correct _
-    (by simpa [sliceToByteArray_size] using h)
+  exact SHS.Equiv.SHA256.sha224_correct _ (by simpa [sliceToByteArray_size] using h)

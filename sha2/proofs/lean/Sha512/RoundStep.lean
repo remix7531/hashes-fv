@@ -1,5 +1,6 @@
 import Word.U64
 import Word.ToU64s
+import Common.Vec
 import equiv.SHA512.Compress.Impl
 
 /-!
@@ -14,72 +15,11 @@ each individually, against `extScheduleStep` (the `t≥16` branch of
 `tupledRoundStep64` (an Aeneas-tuple reshape of
 `SHS.Equiv.SHA512.Compress.Impl.implRoundStep`), and provide
 projection bridges between `Fin.foldl` over the tupled form and
-the Impl-side `Fin.foldl`. -/
+the Impl-side `Fin.foldl`. The literal-rotation lemmas
+(`rotr64_bridge_{1,8,14,18,19,28,34,39,41,61}`) live alongside the
+rest of the U64 bridge in `Word/U64.lean`. -/
 
 open Aeneas Aeneas.Std Result WP SHS.SHA512
-
-/-! ## Rotation bridges for SHA-512 literal rotations
-
-The Aeneas `UScalar.rotate_right x n#u32` ↔ `Impl.UInt64.rotr` bridge
-needs side-conditions `0 < n.val < 64`, so we cannot make
-`toUInt64_rotate_right` a `simp` lemma directly.  We materialize the
-ten literal-amount instances actually used by SHA-512
-(1, 8, 14, 18, 19, 28, 34, 39, 41, 61) as side-condition-free lemmas. -/
-
-private theorem rotr64_bridge_1 (x : U64) :
-    toUInt64 (UScalar.rotate_right x 1#u32) =
-      SHS.SHA512.Impl.UInt64.rotr (toUInt64 x) 1 :=
-  toUInt64_rotate_right x 1#u32 (by decide) (by decide)
-private theorem rotr64_bridge_8 (x : U64) :
-    toUInt64 (UScalar.rotate_right x 8#u32) =
-      SHS.SHA512.Impl.UInt64.rotr (toUInt64 x) 8 :=
-  toUInt64_rotate_right x 8#u32 (by decide) (by decide)
-private theorem rotr64_bridge_14 (x : U64) :
-    toUInt64 (UScalar.rotate_right x 14#u32) =
-      SHS.SHA512.Impl.UInt64.rotr (toUInt64 x) 14 :=
-  toUInt64_rotate_right x 14#u32 (by decide) (by decide)
-private theorem rotr64_bridge_18 (x : U64) :
-    toUInt64 (UScalar.rotate_right x 18#u32) =
-      SHS.SHA512.Impl.UInt64.rotr (toUInt64 x) 18 :=
-  toUInt64_rotate_right x 18#u32 (by decide) (by decide)
-private theorem rotr64_bridge_19 (x : U64) :
-    toUInt64 (UScalar.rotate_right x 19#u32) =
-      SHS.SHA512.Impl.UInt64.rotr (toUInt64 x) 19 :=
-  toUInt64_rotate_right x 19#u32 (by decide) (by decide)
-private theorem rotr64_bridge_28 (x : U64) :
-    toUInt64 (UScalar.rotate_right x 28#u32) =
-      SHS.SHA512.Impl.UInt64.rotr (toUInt64 x) 28 :=
-  toUInt64_rotate_right x 28#u32 (by decide) (by decide)
-private theorem rotr64_bridge_34 (x : U64) :
-    toUInt64 (UScalar.rotate_right x 34#u32) =
-      SHS.SHA512.Impl.UInt64.rotr (toUInt64 x) 34 :=
-  toUInt64_rotate_right x 34#u32 (by decide) (by decide)
-private theorem rotr64_bridge_39 (x : U64) :
-    toUInt64 (UScalar.rotate_right x 39#u32) =
-      SHS.SHA512.Impl.UInt64.rotr (toUInt64 x) 39 :=
-  toUInt64_rotate_right x 39#u32 (by decide) (by decide)
-private theorem rotr64_bridge_41 (x : U64) :
-    toUInt64 (UScalar.rotate_right x 41#u32) =
-      SHS.SHA512.Impl.UInt64.rotr (toUInt64 x) 41 :=
-  toUInt64_rotate_right x 41#u32 (by decide) (by decide)
-private theorem rotr64_bridge_61 (x : U64) :
-    toUInt64 (UScalar.rotate_right x 61#u32) =
-      SHS.SHA512.Impl.UInt64.rotr (toUInt64 x) 61 :=
-  toUInt64_rotate_right x 61#u32 (by decide) (by decide)
-
-/-- `Vector.set` (bounds-proof form) coincides with `Vector.set!` when the
-index is in range. -/
-private theorem vector_set_eq_set!
-    {α : Type _} {n : Nat} (v : Vector α n) (i : Nat) (x : α) (h : i < n) :
-    v.set i x h = v.set! i x := by
-  apply Vector.toArray_inj.mp
-  simp [Array.setIfInBounds, h]
-
-/-- `getElem!` agrees with `getElem` on Vectors when the index is in range. -/
-private theorem vector_getElem!_eq_getElem
-    {α : Type _} [Inhabited α] {n : Nat} (v : Vector α n) (i : Nat) (h : i < n) :
-    v[i]! = v[i]'h := by
-  simp [getElem!_pos, h]
 
 /-! ## Schedule extension step (the `t ≥ 16` branch)
 
@@ -106,8 +46,7 @@ theorem implScheduleStep_eq_extScheduleStep
     (w : SHS.SHA512.Impl.Schedule) :
     SHS.Equiv.SHA512.Compress.Impl.implScheduleStep block t w =
       extScheduleStep t w := by
-  unfold SHS.Equiv.SHA512.Compress.Impl.implScheduleStep extScheduleStep
-  simp [Nat.not_lt.mpr ht]
+  unfold SHS.Equiv.SHA512.Compress.Impl.implScheduleStep extScheduleStep; agrind
 
 /-! ## Round step (Aeneas-tuple reshape of `implRoundStep`)
 
@@ -157,64 +96,38 @@ theorem compress_u64_loop0_body_spec
         arrayU64ToVec w' =
           extScheduleStep iter.start.val (arrayU64ToVec w) ⦄ := by
   unfold Extraction.sha512.soft_compact.compress_u64_loop0.body
-  simp only [core.iter.range.IteratorRange.next_Usize_def,
-             hend, show iter.start.val < 80 from hhi, ↓reduceIte]
-  step
-  step ; step ; step ; step ; step ; step ; step ; step ; step ; step
-  step ; step ; step ; step ; step ; step ; step ; step ; step ; step
-  step ; step
+  simp only [core.iter.range.IteratorRange.next_Usize_def, hend, hhi, ↓reduceIte]
+  iterate 23 step
   refine ⟨r, a, r_post, rfl, ?_⟩
   simp only [extScheduleStep]
-  have hw15 : toUInt64 w15 =
-      (arrayU64ToVec w)[iter.start.val - 15]'(by simp; scalar_tac) := by
-    rw [arrayU64ToVec_getElem w (iter.start.val - 15) (by scalar_tac)]
-    rw [w15_post, getElem!_pos _ _ (by simp [w.property]; scalar_tac)]
-    congr 2
-  have hw2 : toUInt64 w2 =
-      (arrayU64ToVec w)[iter.start.val - 2]'(by simp; scalar_tac) := by
-    rw [arrayU64ToVec_getElem w (iter.start.val - 2) (by scalar_tac)]
-    rw [w2_post, getElem!_pos _ _ (by simp [w.property]; scalar_tac)]
-    congr 2
-  have hw16 : toUInt64 i12 =
-      (arrayU64ToVec w)[iter.start.val - 16]'(by simp; scalar_tac) := by
-    rw [arrayU64ToVec_getElem w (iter.start.val - 16) (by scalar_tac)]
-    rw [i12_post, getElem!_pos _ _ (by simp [w.property]; scalar_tac)]
-    congr 2
-  have hw7 : toUInt64 i15 =
-      (arrayU64ToVec w)[iter.start.val - 7]'(by simp; scalar_tac) := by
-    rw [arrayU64ToVec_getElem w (iter.start.val - 7) (by scalar_tac)]
-    rw [i15_post, getElem!_pos _ _ (by simp [w.property]; scalar_tac)]
-    congr 2
-  have h_sh7 : toUInt64 i5 = (toUInt64 w15) >>> 7 := by
-    simp [toUInt64, i5_post2]
-  have h_sh6 : toUInt64 i10 = (toUInt64 w2) >>> 6 := by
-    simp [toUInt64, i10_post2]
-  have hi2 : i2 = UScalar.rotate_right w15 1#u32 := i2_post
-  have hi3 : i3 = UScalar.rotate_right w15 8#u32 := i3_post
+  have hw15 : toUInt64 w15 = (arrayU64ToVec w)[iter.start.val - 15]'(by agrind) := by
+    rw [arrayU64ToVec_getElem w (iter.start.val - 15) (by agrind),
+        w15_post, getElem!_pos _ _ (by agrind)]; fcongr 2
+  have hw2 : toUInt64 w2 = (arrayU64ToVec w)[iter.start.val - 2]'(by agrind) := by
+    rw [arrayU64ToVec_getElem w (iter.start.val - 2) (by agrind),
+        w2_post, getElem!_pos _ _ (by agrind)]; fcongr 2
+  have hw16 : toUInt64 i12 = (arrayU64ToVec w)[iter.start.val - 16]'(by agrind) := by
+    rw [arrayU64ToVec_getElem w (iter.start.val - 16) (by agrind),
+        i12_post, getElem!_pos _ _ (by agrind)]; fcongr 2
+  have hw7 : toUInt64 i15 = (arrayU64ToVec w)[iter.start.val - 7]'(by agrind) := by
+    rw [arrayU64ToVec_getElem w (iter.start.val - 7) (by agrind),
+        i15_post, getElem!_pos _ _ (by agrind)]; fcongr 2
+  have h_sh7 : toUInt64 i5 = (toUInt64 w15) >>> 7 := by simp [toUInt64, i5_post2]
+  have h_sh6 : toUInt64 i10 = (toUInt64 w2) >>> 6 := by simp [toUInt64, i10_post2]
   have hi4 : i4 = i2 ^^^ i3 := UScalar.eq_of_val_eq i4_post1
   have hs0 : s0 = i4 ^^^ i5 := UScalar.eq_of_val_eq s0_post1
-  have hi7 : i7 = UScalar.rotate_right w2 19#u32 := i7_post
-  have hi8 : i8 = UScalar.rotate_right w2 61#u32 := i8_post
   have hi9 : i9 = i7 ^^^ i8 := UScalar.eq_of_val_eq i9_post1
   have hs1 : s1 = i9 ^^^ i10 := UScalar.eq_of_val_eq s1_post1
   subst a_post
-  have hbnd : iter.start.val < (arrayU64ToVec w).size := by simp; scalar_tac
+  have hbnd : iter.start.val < (arrayU64ToVec w).size := by agrind
   -- Convert `hw*` from `[i]` to `[i]!` form to match the RHS shape.
-  rw [← vector_getElem!_eq_getElem (arrayU64ToVec w) (iter.start.val - 15)
-        (by simp; scalar_tac)] at hw15
-  rw [← vector_getElem!_eq_getElem (arrayU64ToVec w) (iter.start.val - 2)
-        (by simp; scalar_tac)] at hw2
-  rw [← vector_getElem!_eq_getElem (arrayU64ToVec w) (iter.start.val - 16)
-        (by simp; scalar_tac)] at hw16
-  rw [← vector_getElem!_eq_getElem (arrayU64ToVec w) (iter.start.val - 7)
-        (by simp; scalar_tac)] at hw7
+  simp only [← vector_getElem!_eq_getElem] at hw15 hw2 hw16 hw7
   rw [arrayU64ToVec_set (hi := hbnd), vector_set_eq_set! _ _ _ hbnd]
-  subst hi2 hi3 hi4 hs0 hi7 hi8 hi9 hs1
-    i13_post i16_post i17_post
+  subst i2_post i3_post hi4 hs0 i7_post i8_post hi9 hs1 i13_post i16_post i17_post
   simp only [show core.num.U64.wrapping_add = UScalar.wrapping_add from rfl,
+             show core.num.U64.rotate_right = @UScalar.rotate_right .U64 from rfl,
              toUInt64_wrapping_add, toUInt64_xor,
-             rotr64_bridge_1, rotr64_bridge_8,
-             rotr64_bridge_19, rotr64_bridge_61,
+             rotr64_bridge_1, rotr64_bridge_8, rotr64_bridge_19, rotr64_bridge_61,
              h_sh7, h_sh6, hw15, hw2, hw16, hw7]
   rfl
 
@@ -302,41 +215,31 @@ theorem compress_u64_loop1_body_spec
      successor + 2 `Array.index_usize` calls).  This is the key step that
      keeps the kernel happy: with the 28 `let i_k ← ok (...)` collapsed, the
      proof term carries only a small bind chain. -/
-  simp only [core.iter.range.IteratorRange.next_Usize_def,
-             hend, show iter.start.val < 80 from hhi, ↓reduceIte,
+  simp only [core.iter.range.IteratorRange.next_Usize_def, hend, hhi, ↓reduceIte,
              Aeneas.Std.lift, bind_tc_ok]
-  step
-  step
-  step
+  iterate 3 step
   refine ⟨r, _, a, b, c, _, e, f, g, r_post, rfl, ?_⟩
   /- 8 conjuncts.  Six are register copies (close by `rfl` after unfolding
      `tupledRoundStep64`); two non-trivial (a' and e') use the bridges. -/
   have hK : toUInt64 i9 = SHS.SHA512.Impl.K64[iter.start.val]! := by
-    rw [vector_getElem!_eq_getElem _ _ (by simpa using hhi)]
-    rw [i9_post]; exact K64_eq iter.start.val hhi
+    rw [vector_getElem!_eq_getElem _ _ (by agrind), i9_post]; exact K64_eq iter.start.val hhi
   have hw : toUInt64 i11 = (arrayU64ToVec w)[iter.start.val]! := by
-    rw [vector_getElem!_eq_getElem _ _ (by simpa using hhi)]
-    rw [arrayU64ToVec_getElem w iter.start.val hhi, i11_post,
-        getElem!_pos _ _ (by simp [w.property]; scalar_tac)]
+    rw [vector_getElem!_eq_getElem _ _ (by agrind),
+        arrayU64ToVec_getElem w iter.start.val hhi, i11_post, getElem!_pos _ _ (by agrind)]
   simp only [tupledRoundStep64,
-             implRoundStep_get_0, implRoundStep_get_1, implRoundStep_get_2,
-             implRoundStep_get_3, implRoundStep_get_4, implRoundStep_get_5,
-             implRoundStep_get_6, implRoundStep_get_7]
+             implRoundStep_get_0, implRoundStep_get_1, implRoundStep_get_2, implRoundStep_get_3,
+             implRoundStep_get_4, implRoundStep_get_5, implRoundStep_get_6, implRoundStep_get_7]
+  have heqAdd : core.num.U64.wrapping_add = UScalar.wrapping_add := rfl
+  have heqRot : core.num.U64.rotate_right = @UScalar.rotate_right .U64 := rfl
   refine ⟨?_, trivial, trivial, trivial, ?_, trivial, trivial, trivial⟩
   · /- a' conjunct -/
-    simp only [show core.num.U64.wrapping_add = UScalar.wrapping_add from rfl,
-               show core.num.U64.rotate_right = @UScalar.rotate_right .U64 from rfl,
-               toUInt64_wrapping_add, toUInt64_xor, toUInt64_and, toUInt64_not,
+    simp only [heqAdd, heqRot, toUInt64_wrapping_add, toUInt64_xor, toUInt64_and, toUInt64_not,
                rotr64_bridge_14, rotr64_bridge_18, rotr64_bridge_28,
-               rotr64_bridge_34, rotr64_bridge_39, rotr64_bridge_41,
-               hK, hw]
+               rotr64_bridge_34, rotr64_bridge_39, rotr64_bridge_41, hK, hw]
     rfl
   · /- e' conjunct -/
-    simp only [show core.num.U64.wrapping_add = UScalar.wrapping_add from rfl,
-               show core.num.U64.rotate_right = @UScalar.rotate_right .U64 from rfl,
-               toUInt64_wrapping_add, toUInt64_xor, toUInt64_and, toUInt64_not,
-               rotr64_bridge_14, rotr64_bridge_18, rotr64_bridge_41,
-               hK, hw]
+    simp only [heqAdd, heqRot, toUInt64_wrapping_add, toUInt64_xor, toUInt64_and, toUInt64_not,
+               rotr64_bridge_14, rotr64_bridge_18, rotr64_bridge_41, hK, hw]
     rfl
 
 /-! ## Tupled foldl bridges -/
@@ -358,8 +261,7 @@ theorem finFoldl_roundStep64_eq_tupled
       (fun s (i : Fin 80) => tupledRoundStep64 w i.val s) init_tup
     (final_st[0], final_st[1], final_st[2], final_st[3],
      final_st[4], final_st[5], final_st[6], final_st[7]) = final_tup := by
-  set proj : SHS.SHA512.Impl.State →
-      UInt64 × UInt64 × UInt64 × UInt64 ×
+  set proj : SHS.SHA512.Impl.State → UInt64 × UInt64 × UInt64 × UInt64 ×
       UInt64 × UInt64 × UInt64 × UInt64 :=
     fun s => (s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7])
   have hfold_eq :
@@ -371,18 +273,11 @@ theorem finFoldl_roundStep64_eq_tupled
         (fun (s : UInt64 × UInt64 × UInt64 × UInt64 ×
                   UInt64 × UInt64 × UInt64 × UInt64) (i : Fin 80) =>
           tupledRoundStep64 w i.val s) n init_tup := by
-    intro n hn
-    induction n with
-    | zero =>
-      simp only [partialFinFoldl_zero]
-      exact h0
+    intro n hn; induction n with
+    | zero => simp only [partialFinFoldl_zero]; exact h0
     | succ k ih =>
-      have hk : k < 80 := hn
-      have hk' : k ≤ 80 := Nat.le_of_lt hk
-      have ih' := ih hk'
-      rw [partialFinFoldl_succ 80 _ k hk,
-          partialFinFoldl_succ 80 _ k hk]
-      rw [← ih']
+      rw [partialFinFoldl_succ 80 _ k hn, partialFinFoldl_succ 80 _ k hn,
+          ← ih (Nat.le_of_lt hn)]
       exact proj_implRoundStep_eq_tupled w k _
   have hbridge := hfold_eq 80 (le_refl _)
   rw [partialFinFoldl_full, partialFinFoldl_full] at hbridge
@@ -408,19 +303,13 @@ theorem finFoldl_extScheduleStep_eq_implScheduleStep
       partialFinFoldl n
         (fun w (i : Fin n) =>
           SHS.Equiv.SHA512.Compress.Impl.implScheduleStep block (16 + i.val) w) k init := by
-    intro k hk
-    induction k with
+    intro k hk; induction k with
     | zero => simp [partialFinFoldl_zero]
     | succ j ih =>
-      have hj : j < n := hk
-      have hj' : j ≤ n := Nat.le_of_lt hj
-      rw [partialFinFoldl_succ n _ j hj, partialFinFoldl_succ n _ j hj, ih hj']
-      have hbound : 16 + j < 80 := by omega
-      have heq := implScheduleStep_eq_extScheduleStep block (16 + j) (by omega)
-        (partialFinFoldl n
-          (fun w (i : Fin n) =>
-            SHS.Equiv.SHA512.Compress.Impl.implScheduleStep block (16 + i.val) w) j init)
-      exact heq.symm
+      rw [partialFinFoldl_succ n _ j hk, partialFinFoldl_succ n _ j hk,
+          ih (Nat.le_of_lt hk)]
+      exact (implScheduleStep_eq_extScheduleStep block (16 + j)
+        (by have := hn; agrind) _).symm
   have := key n (le_refl _)
   rw [partialFinFoldl_full, partialFinFoldl_full] at this
   exact this
