@@ -23,7 +23,8 @@ Helpers shared between the SHA-256 and SHA-512 refinement proofs:
 * `Common.Truncate` — generic 28/32/48-byte truncation chain plus
                  `inner_truncate_digest_spec`, the one-shot wrapper
                  used by SHA-224 / SHA-384 / SHA-512/256 / SHA-512/224
-* `Common.Digest` — `digestBitVec` view + `sliceBitMessage` bridge
+* `Common.Digest` — `bytesToBits` primitive + length / `digestBitVec...`
+                 bridges to the upstream per-namespace and per-width forms
 
 Word-size-specific helpers live in `Word.U32` (SHA-256 / SHA-224) and
 `Word.U64` (SHA-512 / SHA-384 / SHA-512-256 / SHA-512-224).

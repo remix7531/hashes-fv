@@ -8,8 +8,8 @@ import Aeneas
 Each `<algo>_spec` is the public top-level theorem in its respective
 module (e.g., `Sha256/Sha256.lean`), relating the Aeneas-extracted
 `Extraction.<algo>` to the FIPS-180-4 bitwise spec `SHS.SHA<XXX>.<algo>`
-via `digestBitVec` and `sliceBitMessage` (from `Common/Digest.lean`)
-and the per-algorithm Impl↔Spec proof from `fips-pub-180-4-lean`. -/
+via `bytesToBits` and `SHS.Word.fromBits` (`Common/Digest.lean`) and
+the per-algorithm Impl/Spec proof from `fips-pub-180-4-lean`. -/
 
 /-! ## Aeneas backend bridge lemmas (theorems, not axioms — for reference). -/
 #print axioms Aeneas.Std.slice_iter_loop_eq_foldl

@@ -7,70 +7,113 @@ import equiv.SHA512.Padding.ByteDecoding
 import equiv.SHA512.Pipeline
 
 /-!
-# Aeneas-side digest and message views
+# Bytes <-> bits conversion
 
-The Aeneas-extracted SHA-2 algorithms return their digest as an
-`Array U8 N#usize`; the FIPS-180-4 bitwise spec emits a `BitVec (8·N)`.
-This module provides the bridges that let the top-level theorems read
-as `digestBitVec (arrayU8ToVec out) = SHS.…sha… (sliceBitMessage data) _`
-without inline `let` bindings or `(by …)` proof terms in the
-postcondition. -/
+Single primitive `bytesToBits : List U8 -> SHS.Message` (MSB-first per
+byte, FIPS 180-4 Sec. 3.1).  Both the input (slice payload) and output
+(digest array payload) sides of every `<algo>_spec` theorem flow
+through this one function.  `SHS.Word.fromBits` (upstream,
+`spec/Setup.lean`) wraps the bit list into a `BitVec N` for the
+digest side.
+
+The bridges in this file connect our `bytesToBits` / `Word.fromBits`
+forms to the per-namespace upstream `bytesToBitMessage` and per-width
+`digestBitVec...` family consumed by `SHS.Equiv.SHA{256,512}.<algo>_correct`. -/
 
 open Aeneas Aeneas.Std
 
-/-- Big-endian `BitVec` view of a `Vector UInt8 N` digest.  Generalises the
-per-width `SHS.Equiv.SHA{256,512}.Digest.digestBitVec…` family to any `N`. -/
-@[inline] def digestBitVec {N : Nat} (d : Vector UInt8 N) : BitVec (8 * N) :=
-  SHS.Word.fromBits (d.toList.flatMap fun b => SHS.Equiv.Bytes.byteToBits b)
+/-- MSB-first FIPS-180-4 bit representation of an Aeneas byte list. -/
+@[inline] def bytesToBits (bs : List U8) : SHS.Message :=
+  bs.flatMap fun b => SHS.Equiv.Bytes.byteToBits (toUInt8 b)
 
-/-- Aeneas byte slice viewed as a FIPS-180-4 bit message (MSB-first per byte). -/
-@[inline] def sliceBitMessage (data : Slice U8) : SHS.Message :=
-  SHS.Equiv.SHA256.Padding.ByteDecoding.bytesToBitMessage (sliceToByteArray data)
+/-! ## Length -/
 
-/-! ## Bit-length bound bridges -/
+@[simp] theorem bytesToBits_length (bs : List U8) :
+    (bytesToBits bs).length = 8 * bs.length := by
+  unfold bytesToBits
+  induction bs with
+  | nil => simp
+  | cons b bs ih =>
+    simp only [List.flatMap_cons, List.length_append,
+               SHS.Equiv.Bytes.byteToBits_length, List.length_cons]
+    omega
 
-/-- A byte slice with byte length below `2^61` has bit length below `2^64`
-(consumed by SHA-256 / SHA-224 specs). -/
-theorem sliceBitMessage_lt_2_64
-    (data : Slice U8) (h : data.length < 2 ^ 61) :
-    (sliceBitMessage data).length < 2 ^ 64 :=
-  SHS.Equiv.SHA256.Pipeline.bitLen_lt_of_size_lt _ (by simpa [sliceToByteArray_size] using h)
+theorem bytesToBits_length_lt_2_64 (bs : List U8) (h : bs.length < 2 ^ 61) :
+    (bytesToBits bs).length < 2 ^ 64 := by
+  rw [bytesToBits_length]; omega
 
-/-- A byte slice with byte length below `2^61` has bit length below `2^128`
-(consumed by SHA-512 / SHA-384 / SHA-512/256 / SHA-512/224 specs). -/
-theorem sliceBitMessage_lt_2_128
-    (data : Slice U8) (h : data.length < 2 ^ 61) :
-    (sliceBitMessage data).length < 2 ^ 128 :=
-  SHS.Equiv.SHA512.Pipeline.bitLen_lt_of_size_lt _ (by simpa [sliceToByteArray_size] using h)
+theorem bytesToBits_length_lt_2_128 (bs : List U8) (h : bs.length < 2 ^ 61) :
+    (bytesToBits bs).length < 2 ^ 128 := by
+  rw [bytesToBits_length]; omega
 
-/-! ## `digestBitVec` ≡ the per-width fips-pub-180-4 views -/
+/-! ## Bridges to upstream forms
 
-@[simp] theorem digestBitVec_eq_sha256 (d : Vector UInt8 32) :
-    digestBitVec d = SHS.Equiv.SHA256.Digest.digestBitVec d := rfl
+These lemmas let the `<algo>_spec` proofs rewrite our `bytesToBits` /
+`Word.fromBits` forms into the upstream `bytesToBitMessage` /
+`digestBitVec...` forms produced by `SHS.Equiv.SHA{256,512}.<algo>_correct`. -/
 
-@[simp] theorem digestBitVec_eq_sha224 (d : Vector UInt8 28) :
-    digestBitVec d = SHS.Equiv.SHA256.Digest.digestBitVec224 d := rfl
+/-- `bytesToBits` over a slice payload matches the upstream SHA-256
+`bytesToBitMessage` view of the same slice (via `sliceToByteArray`). -/
+theorem bytesToBits_eq_sha256_bytesToBitMessage (data : Slice U8) :
+    bytesToBits data.val =
+      SHS.Equiv.SHA256.Padding.ByteDecoding.bytesToBitMessage
+        (sliceToByteArray data) := by
+  unfold bytesToBits SHS.Equiv.SHA256.Padding.ByteDecoding.bytesToBitMessage
+  simp [sliceToByteArray, List.flatMap_map]
 
-@[simp] theorem digestBitVec_eq_sha512 (d : Vector UInt8 64) :
-    digestBitVec d = SHS.Equiv.SHA512.Digest.digestBitVec512 d := rfl
-
-@[simp] theorem digestBitVec_eq_sha384 (d : Vector UInt8 48) :
-    digestBitVec d = SHS.Equiv.SHA512.Digest.digestBitVec384 d := rfl
-
-@[simp] theorem digestBitVec_eq_sha512_256 (d : Vector UInt8 32) :
-    digestBitVec d = SHS.Equiv.SHA512.Digest.digestBitVec512_256 d := rfl
-
-@[simp] theorem digestBitVec_eq_sha512_224 (d : Vector UInt8 28) :
-    digestBitVec d = SHS.Equiv.SHA512.Digest.digestBitVec512_224 d := rfl
-
-/-! ## SHA-256 ↔ SHA-512 `bytesToBitMessage` agreement
-
-Both modules in `fips-pub-180-4` define their own `bytesToBitMessage`;
-they coincide because both compose `ByteArray.toList` with the same
-`byteToBits` expansion.  This lets `sliceBitMessage` (using the SHA-256
-namespace) feed the SHA-512 family specs as well. -/
-
-theorem sliceBitMessage_eq_sha512_bytesToBitMessage (data : Slice U8) :
-    sliceBitMessage data =
+/-- The SHA-512 namespace's `bytesToBitMessage` coincides with the SHA-256
+namespace's; the same equality holds. -/
+theorem bytesToBits_eq_sha512_bytesToBitMessage (data : Slice U8) :
+    bytesToBits data.val =
       SHS.Equiv.SHA512.Padding.ByteDecoding.bytesToBitMessage
-        (sliceToByteArray data) := rfl
+        (sliceToByteArray data) :=
+  bytesToBits_eq_sha256_bytesToBitMessage data
+
+/-! ### Word.fromBits over bytesToBits matches the upstream digestBitVec... family -/
+
+private theorem fromBits_bytesToBits_aux {N : Usize} {n : Nat}
+    (a : Aeneas.Std.Array U8 N) :
+    SHS.Word.fromBits (n := n) (bytesToBits a.val) =
+      SHS.Word.fromBits (n := n)
+        ((arrayU8ToVec a).toList.flatMap SHS.Equiv.Bytes.byteToBits) := by
+  congr 1
+  unfold bytesToBits
+  rw [show (arrayU8ToVec a).toList = a.val.map toUInt8 from ?_]
+  · rw [List.flatMap_map]
+  · simp [arrayU8ToVec]
+
+theorem fromBits_bytesToBits_eq_digestBitVec_sha256
+    (a : Aeneas.Std.Array U8 32#usize) :
+    SHS.Word.fromBits (n := 256) (bytesToBits a.val) =
+      SHS.Equiv.SHA256.Digest.digestBitVec (arrayU8ToVec a) :=
+  fromBits_bytesToBits_aux a
+
+theorem fromBits_bytesToBits_eq_digestBitVec_sha224
+    (a : Aeneas.Std.Array U8 28#usize) :
+    SHS.Word.fromBits (n := 224) (bytesToBits a.val) =
+      SHS.Equiv.SHA256.Digest.digestBitVec224 (arrayU8ToVec a) :=
+  fromBits_bytesToBits_aux a
+
+theorem fromBits_bytesToBits_eq_digestBitVec_sha512
+    (a : Aeneas.Std.Array U8 64#usize) :
+    SHS.Word.fromBits (n := 512) (bytesToBits a.val) =
+      SHS.Equiv.SHA512.Digest.digestBitVec512 (arrayU8ToVec a) :=
+  fromBits_bytesToBits_aux a
+
+theorem fromBits_bytesToBits_eq_digestBitVec_sha384
+    (a : Aeneas.Std.Array U8 48#usize) :
+    SHS.Word.fromBits (n := 384) (bytesToBits a.val) =
+      SHS.Equiv.SHA512.Digest.digestBitVec384 (arrayU8ToVec a) :=
+  fromBits_bytesToBits_aux a
+
+theorem fromBits_bytesToBits_eq_digestBitVec_sha512_256
+    (a : Aeneas.Std.Array U8 32#usize) :
+    SHS.Word.fromBits (n := 256) (bytesToBits a.val) =
+      SHS.Equiv.SHA512.Digest.digestBitVec512_256 (arrayU8ToVec a) :=
+  fromBits_bytesToBits_aux a
+
+theorem fromBits_bytesToBits_eq_digestBitVec_sha512_224
+    (a : Aeneas.Std.Array U8 28#usize) :
+    SHS.Word.fromBits (n := 224) (bytesToBits a.val) =
+      SHS.Equiv.SHA512.Digest.digestBitVec512_224 (arrayU8ToVec a) :=
+  fromBits_bytesToBits_aux a
