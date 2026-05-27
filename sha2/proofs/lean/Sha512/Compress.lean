@@ -23,6 +23,12 @@ open SHS.Equiv.Loop
 
 /-! ## 64-step loop1 ↔ Fin.foldl over `tupledRoundStep64` -/
 
+/- Strategy: apply `loop.spec_decr_nat` with measure `80 - start.val` and an
+   invariant capturing `(a..h) = partialFinFoldl 80 tupledRoundStep64 start init`.
+   In the step case, `compress_u64_loop1_body_spec` produces the post-iteration
+   tuple; the new partial-fold equation follows from `partialFinFoldl_succ`. The
+   done case (`start = 80`) reduces the partial fold via `partialFinFoldl_full`.
+   ↔ `Sha256/Compress.lean::compress_u32_loop_spec`. -/
 theorem compress_u64_loop1_spec
     (w : Array U64 80#usize) (a b c d e f g h : U64) :
     Extraction.sha512.soft_compact.compress_u64_loop1
@@ -102,6 +108,11 @@ theorem compress_u64_loop1_spec
 
 /-! ## Schedule-extension loop0 ↔ Fin.foldl over `extScheduleStep` -/
 
+/- Strategy: same shape as `compress_u64_loop1_spec`. Apply `loop.spec_decr_nat`
+   with measure `80 - start.val` and an invariant tracking that `arrayU64ToVec w` is
+   the partial `extScheduleStep` fold over `start - 16` indices. The step case
+   leans on `compress_u64_loop0_body_spec` plus `partialFinFoldl_succ`; the done
+   case (`start = 80`, i.e. `start - 16 = 64`) closes via `partialFinFoldl_full`. -/
 theorem compress_u64_loop0_spec
     (w : Array U64 80#usize) :
     Extraction.sha512.soft_compact.compress_u64_loop0
@@ -175,6 +186,12 @@ zero-initialized) has slots `[0,16)` filled with `block`'s words and slots
 `[16,80)` still zero.  We need this shape to match the result of the
 first 16 steps of `implScheduleFoldl`. -/
 
+/- Strategy: extensional comparison at each index `k < 80`. Auxiliary
+   `hFfold_get` gives a closed form for `(partialFinFoldl 16 ... n)[k]` —
+   `block.toList[k]!` if `k < n`, else `0` — by induction on the fold count
+   `n`. Specialised at `n = 16` and combined with `partialFinFoldl_full`, this
+   pins down the RHS at `k`. The LHS is rewritten via `setSlice!` lemmas
+   (`_middle` for `k < 16`, `_suffix` for `k ≥ 16`). -/
 private theorem arrayU64ToVec_schedule_copy
     (block : Array U64 16#usize) (w1 : Array U64 80#usize)
     (hw1_val : w1.val =
@@ -252,6 +269,12 @@ private theorem arrayU64ToVec_schedule_copy
 
 /-! ## Single-block compression -/
 
+/- Mirrors `compress_u32_spec` but on `U64`. The schedule-construction
+   phase emits a `copy_from_slice` bridge plus 80-element schedule
+   reasoning, the working-var phase threads 24 inline `step`s, and a
+   final fold bridge ties to `finFoldl_roundStep_eq_tupled_512`. The
+   combined elaboration runs ~3× over the 200K default heartbeats. 1M is
+   used to match `compress_u32_spec`. -/
 set_option maxHeartbeats 1000000 in
 theorem compress_u64_spec
     (state : Array U64 8#usize) (block : Array U64 16#usize) :
@@ -259,6 +282,8 @@ theorem compress_u64_spec
     ⦃ out => arrayU64ToVec out =
         SHS.SHA512.Impl.compress (arrayU64ToVec state) (arrayU64ToVec block) ⦄ := by
   unfold Extraction.sha512.soft_compact.compress_u64
+  /- Working-variable initialization: 8 sequential `step`s, one per
+     `a..h` read from `state`. -/
   iterate 8 step
   /- Schedule construction phase. -/
   step as ⟨discr1, hd1⟩
@@ -280,7 +305,8 @@ theorem compress_u64_spec
   /- Loop1: 80-round mix. -/
   apply spec_bind (compress_u64_loop1_spec w2 a b c d e f g h)
   rintro ⟨a1, b1, c1, d1, e1, f1, g1, h1⟩ ⟨ha1, hb1, hc1, hd1', he1, hf1, hg1, hh1⟩
-  /- Final 24 monadic steps (8 state reads + 8 wrapping_adds + 8 state writes). -/
+  /- Final 24 monadic steps: 8 state reads (`iN_post : iN = ...`) interleaved
+     with 8 `wrapping_add` calls and 8 state writes (`stateN_post`). -/
   iterate 24 step
   /- Rename `i`-binder to avoid shadow with outer `out`. -/
   rename_i i i_post
@@ -362,7 +388,10 @@ theorem compress_u64_spec
   simp only [Prod.ext_iff] at hbridge
   obtain ⟨ha, hb, hc, hd, he, hf, hg, hh⟩ := hbridge
   simp only [← ha1, ← hb1, ← hc1, ← hd1', ← he1, ← hf1, ← hg1, ← hh1] at ha hb hc hd he hf hg hh
-  /- Final state write chain. -/
+  /- Final state write chain. The 8 partial-state intermediates `state{1..7}`
+     each set one slot; the `iN_post` hypotheses then read another slot from
+     the partially-written array. `set_get_ne` discharges the disjoint reads
+     by `decide` on `j.val ≠ k` once per skipped write. -/
   have set_get_ne : ∀ {N : Usize} (a : Aeneas.Std.Array U64 N) (j : Usize) (v : U64) (k : ℕ),
       j.val ≠ k → (a.set j v).val[k]! = a.val[k]! := fun _ _ _ k hjk => by
     show (_root_.List.set _ _ _)[k]! = _
@@ -412,6 +441,14 @@ theorem compress_u64_spec
 
 /-! ## Multi-block compression -/
 
+/- Strategy: bridge the Aeneas slice-iter loop to a `List.foldl` over the
+   blocks. Define `f` (the spec-level fold step) and `f'` (the Aeneas-level
+   step that runs `to_u64s` + `compress_u64` and falls back to the input on
+   `fail`/`div`). `slice_iter_loop_eq_foldl` gives the Aeneas loop ≡ `foldl f'`
+   bridge; `hfold_conv` lifts `arrayU64ToVec ∘ foldl f' = foldl f ∘
+   arrayU64ToVec` by list induction. Final `convert` plus a one-step
+   case-split on the `Result` constructor stitches both halves.
+   ↔ `Sha256/Compress.lean::compress256_spec`. -/
 theorem compress512_spec
     (state : Array U64 8#usize) (blocks : Slice (Array U8 128#usize)) :
     Extraction.sha512.compress512 state blocks

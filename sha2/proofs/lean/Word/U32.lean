@@ -107,6 +107,24 @@ theorem rotr_bridge_25 (x : U32) :
 open SHS.SHA256 in
 /-- The four-byte BE decoder in Aeneas's stdlib equals the shift-or chain
 that `Impl.beU32` materializes. -/
+/-
+Strategy: Pattern-match the 4-byte array to expose its bytes `b0..b3`, then
+prove the goal at the `BitVec`-level via `UInt32.toBitVec_inj`. The proof
+walks three layers:
+
+1.  **LE byte ladder.** `h0..h4` are four definitional (`rfl`) unfoldings of
+    `BitVec.fromLEBytes` on lists of length 0..4. They expose the recursive
+    `setWidth ||| shift-left` structure one byte at a time.
+2.  **BE ↔ LE cast.** `hBE` is the single `rfl`-cast that rewrites
+    `BitVec.fromBEBytes [b0..b3]` to `BitVec.fromLEBytes [b3..b0]` (reversed
+    list).  This is the only non-`setWidth`/`||| <<<` rewrite needed.
+3.  **Bit-blast closer.** After `simp only` collapses the ladder against the
+    `UInt8.toUInt32`/`<<<`/`|||` simp set, `BitVec.eq_of_getLsbD_eq` reduces
+    the equality to a per-bit check, dispatched by
+    `interval_cases i <;> simp` over the 32 bit positions.
+
+Mirrors `Word/U64.lean::toUInt64_from_be_bytes` at width 64 / 8 bytes.
+-/
 theorem toUInt32_from_be_bytes (a : Array U8 4#usize) :
     toUInt32 (core.num.U32.from_be_bytes a) =
       ((toUInt8 a.val[0]!).toUInt32 <<< 24) ||| ((toUInt8 a.val[1]!).toUInt32 <<< 16) |||
@@ -154,6 +172,18 @@ open SHS.SHA256 in
 4-byte slice `[block[4j], block[4j+1], block[4j+2], block[4j+3]]`.
 The hypothesis is what the calling site materializes from the
 `to_u32s` extracted closure. -/
+/-
+Strategy: Rewrite the LHS by the previous theorem `toUInt32_from_be_bytes`
+and the slice equation `hchunk`, then unfold `Impl.beU32` on the RHS. The
+two sides then differ only in how byte access is phrased — `block.val[…]!`
+on the left vs `(arrayU8ToVec block)[…]` on the right. The local helper
+`hidx` discharges that mismatch for any in-range index by reducing both
+forms to `toUInt8 (block.val[i]!)`. Four `← hidx` rewrites align the four
+byte positions, after which `rfl` closes the goal.
+
+Mirrors `Word/U64.lean::toUInt64_from_be_bytes_eq_beU64` at width 64 /
+8 bytes (block size 128 vs 64, 16 eight-byte chunks vs 16 four-byte chunks).
+-/
 theorem toUInt32_from_be_bytes_eq_beU32
     (block : Array U8 64#usize) (chunk : Array U8 4#usize)
     (j : Nat) (hj : j < 16)

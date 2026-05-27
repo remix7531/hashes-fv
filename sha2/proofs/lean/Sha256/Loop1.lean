@@ -22,6 +22,16 @@ Width-32 specialization of the shared shift-and-mask identity
 
 /-- Byte `i` (`i < 4`) of the BE-encoding of a `U32` equals the
 shift-and-mask form `((toUInt32 x >>> ((3-i)*8)) &&& 0xff).toUInt8`. -/
+/- Strategy: chain three bridges to land on the upstream Aeneas identity.
+   First normalise the LHS to `UScalar.mk (x.bv.toBEBytes[i]!)` via
+   `List.getElem_map` (`hmap`), then apply
+   `BitVec.toBEBytes_getElem!_eq_shift_mask` at width 32 to rewrite into
+   a `>>>`/`&&&` form on `BitVec 32`. The remaining task is to identify
+   the U32-domain shift `(UInt32.ofNat ((3-i)*8)).toBitVec % 32` with
+   the BitVec-domain shift `BitVec.ofNat 32 ((3-i)*8)`: this needs
+   `BitVec.eq_of_toNat_eq` plus `Nat.mod_eq_of_lt` (`hk_lt`).
+   The two `fcongr 1` steps push the equality inward through the
+   `&&& 0xff` and the `>>>` so each leaf can close by `rfl`/`omega`. -/
 theorem toUInt8_be_byte_U32 (x : U32) (i : Nat) (hi : i < 4) :
     toUInt8 ((x.bv.toBEBytes.map (UScalar.mk (ty := .U8)) : List U8)[i]!) =
       ((toUInt32 x >>> (UInt32.ofNat ((3 - i) * 8))) &&& 0xff).toUInt8 := by
@@ -75,6 +85,37 @@ private def specByte (state : Array U32 8#usize) (out0 : Array U8 32#usize)
 
 /-- **Main spec**: `sha256_inner_loop1` from `0..8` produces an output whose
 `arrayU8ToVec` view equals the spec's final BE-emit `Vector.ofFn`. -/
+/- Strategy: `loop.spec_decr_nat` with measure `8 - iter.start.val` and the
+   `specByte`-flavoured invariant above. The proof then splits on the
+   `by_cases hlt : iter.start.val < 8` step/done dichotomy.
+
+   Step branch. `UScalar.add_spec` discharges the `iter.start + 1#usize`
+   bind via `cases hadd_eval` so the success case carries `next.val =
+   iter.start.val + 1`. The body's 4-byte cascade (read state word `i1`,
+   then four `to_be_bytes`-byte / `Array.update_usize` pairs) consumes
+   one `step as ⟨i1, i1_post⟩` plus `iterate 12 step`. The
+   updated array `a.val` is then characterised by two named keys:
+   `key_at` (the four written slots `4s..4s+3` get `i2,i4,i6,i8`) and
+   `key_out` (every other slot is unchanged from `out'`). Reasoning on
+   `j` splits on `by_cases hjblock : j / 4 = iter.start.val`. The
+   in-block branch combines `key_at` with `interval_cases (j % 4)` and
+   closes each of four cases via the `toUInt8_to_be_bytes_get` lemma
+   above. The out-of-block branch uses `key_out` and reduces to the
+   prior invariant `hinv_j` (the `j / 4 < iter.start.val + 1 ↔
+   j / 4 < iter.start.val` rewrite holds because `j / 4 ≠
+   iter.start.val`).
+
+   Done branch. `hlt = false` forces `iter.start.val = 8`, so
+   `j / 4 < iter.start.val` holds for every `j < 32`. The goal becomes
+   pointwise equality of two 32-vectors, discharged by `Vector.ext`,
+   `Vector.getElem_ofFn`, `arrayU8ToVec_getElem`, and `getElem!_pos`
+   bridges, ending in a single rewrite via `hinv j hjlt` and the
+   `arrayU32ToVec_getElem` view on the state.
+
+   Sibling: `Sha512/Loop1.lean::sha512_inner_loop1_spec` mirrors this
+   proof at width 64 with an 8-byte cascade (`iterate 24 step`, eight
+   `interval_cases` arms) and a 16M-heartbeat budget; the SHA-256 proof
+   stays within the default. -/
 theorem sha256_inner_loop1_spec
     (state : Array U32 8#usize) (out : Array U8 32#usize) :
     Extraction.sha256_inner_loop1 ⟨0#usize, 8#usize⟩ state out
@@ -153,14 +194,19 @@ theorem sha256_inner_loop1_spec
             | (rw [i4_post]; exact toUInt8_to_be_bytes_get i1 1 (by norm_num))
             | (rw [i6_post]; exact toUInt8_to_be_bytes_get i1 2 (by norm_num))
             | (rw [i8_post]; exact toUInt8_to_be_bytes_get i1 3 (by norm_num))
-        · have hk_outside : j < 4*iter.start.val ∨ 4*iter.start.val + 4 ≤ j := by omega
+        · -- j ∉ [4s, 4s+3]: a.val[j]! is unchanged from out'.val[j]!,
+          -- and hinv_j gives the matching invariant on out'.
+          have hk_outside : j < 4*iter.start.val ∨ 4*iter.start.val + 4 ≤ j := by omega
           rw [key_out j hk_outside hj]
           have hsuc_iff : j / 4 < iter.start.val + 1 ↔ j / 4 < iter.start.val :=
             by omega
           by_cases h_lt : j / 4 < iter.start.val
-          · simp only [hsuc_iff, h_lt, ↓reduceIte] at hinv_j ⊢
+          · -- j / 4 < iter.start.val: invariant survives the iteration bump.
+            simp only [hsuc_iff, h_lt, ↓reduceIte] at hinv_j ⊢
             exact hinv_j
-          · simp only [hsuc_iff, h_lt, ↓reduceIte] at hinv_j ⊢
+          · -- j / 4 ≥ iter.start.val (and ≠ iter.start.val since hjblock fails):
+            -- invariant is the trivial else-branch on both sides.
+            simp only [hsuc_iff, h_lt, ↓reduceIte] at hinv_j ⊢
             exact hinv_j
       | fail _ => intro h; exact h.elim
       | div => intro h; exact h.elim

@@ -22,7 +22,16 @@ open Aeneas Aeneas.Std Result WP SHS.SHA512
   SHS.SHA512.Impl.compress s
     (SHS.SHA512.Impl.toU64sFromBytes (sliceToByteArray data) (i.val * 128))
 
--- Per-iteration action spec — port of `Sha256/Loop0.lean`'s `loop0_action_spec`.
+/- Strategy: step through the slice index, copy, and `try_from` calls to
+   materialize a `block : Array U8 128#usize` slice of `data` at offset
+   `i.val * 128`; package it into a singleton `bs` and discharge via
+   `compress512_spec bs`. The byte-chunk → word-chunk bridge
+   `SHS.Equiv.SHA512.ToU64s.toU64sFromBytes_eq_toU64s` closes the final
+   shape mismatch.
+
+   Port of `Sha256/Loop0.lean`'s `loop0_action_spec`. Same elaboration shape
+   (slice index, `to_u64s` conversion, `compress_u64_spec` bridge) so it
+   inherits the same 800K heartbeat ceiling — ~4× the 200K default. -/
 set_option maxHeartbeats 800000 in
 private theorem loop0_action_spec_512
     (data : Slice U8) (blocks : Usize) (state : Array U64 8#usize)
@@ -76,6 +85,14 @@ private theorem loop0_action_spec_512
   rw [hu64]
 
 /-- Outer per-block loop refinement. -/
+/- Strategy: lift the Aeneas range-loop to `Fin.foldl` via
+   `range_loop_eq_finFoldl`. The per-iteration `action` is exactly the body
+   of `loop0_action_spec_512`; a choice-erased `f'` extracts the `.ok` value
+   of each iteration. `hf'_to_view` transports `f'` to the spec-level
+   `loop0_step_512`. The induction `hfold_conv` propagates the
+   `arrayU64ToVec`-view equality through the Fin fold.
+   Mirrors `Sha256/Loop0.lean::sha256_inner_loop0_spec` at width 32 / 64
+   (block size 64 vs 128). -/
 theorem sha512_inner_loop0_spec
     (data : Slice U8) (state : Array U64 8#usize) (blocks : Usize)
     (hbl : blocks.val * 128 ≤ data.length) :

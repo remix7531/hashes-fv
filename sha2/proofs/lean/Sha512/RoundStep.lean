@@ -84,6 +84,11 @@ When `iter.start ∈ [16, iter.end)` and `iter.end = 80`, the body returns
 `cont` with the incremented iterator and the schedule with slot
 `iter.start` overwritten by the four-term sum.  Its UInt64-view equals
 `extScheduleStep iter.start.val` applied to the input schedule. -/
+/- ~30 inline `step`s discharge four schedule reads, four rotations, four
+   shifts and the running sum; the surrounding `simp only` over the
+   `rotr_bridge_*_u64` lemmas plus `toUInt64_*` bridges roughly doubles
+   the default heartbeat budget. 1M is the smallest round value that
+   holds with room to spare. -/
 set_option maxHeartbeats 1000000 in
 theorem compress_u64_loop0_body_spec
     (iter : core.ops.range.Range Usize) (w : Array U64 80#usize)
@@ -100,6 +105,10 @@ theorem compress_u64_loop0_body_spec
   iterate 23 step
   refine ⟨r, a, r_post, rfl, ?_⟩
   simp only [extScheduleStep]
+  /- Four schedule reads at offsets `-15, -2, -16, -7`; each lifts the
+     Aeneas-side `*_post` equality into a `Vector` view via
+     `arrayU64ToVec_getElem`. Bodies are uniform (`rw [...]; fcongr 2`); the
+     `agrind` calls discharge `t - k < 80` index bounds from `hlo, hhi`. -/
   have hw15 : toUInt64 w15 = (arrayU64ToVec w)[iter.start.val - 15]'(by agrind) := by
     rw [arrayU64ToVec_getElem w (iter.start.val - 15) (by agrind),
         w15_post, getElem!_pos _ _ (by agrind)]; fcongr 2
@@ -114,6 +123,9 @@ theorem compress_u64_loop0_body_spec
         i15_post, getElem!_pos _ _ (by agrind)]; fcongr 2
   have h_sh7 : toUInt64 i5 = (toUInt64 w15) >>> 7 := by simp [toUInt64, i5_post2]
   have h_sh6 : toUInt64 i10 = (toUInt64 w2) >>> 6 := by simp [toUInt64, i10_post2]
+  /- Lift the XOR-chain `*_post1` proofs from `.val`-equality to direct
+     `UScalar` equality so the subsequent `subst` can collapse them into
+     the final `s0`/`s1` shape. -/
   have hi4 : i4 = i2 ^^^ i3 := UScalar.eq_of_val_eq i4_post1
   have hs0 : s0 = i4 ^^^ i5 := UScalar.eq_of_val_eq s0_post1
   have hi9 : i9 = i7 ^^^ i8 := UScalar.eq_of_val_eq i9_post1
@@ -131,12 +143,23 @@ theorem compress_u64_loop0_body_spec
              h_sh7, h_sh6, hw15, hw2, hw16, hw7]
   rfl
 
-/-! ## One iteration of `compress_u64_loop1.body` -/
+/-! ## One iteration of `compress_u64_loop1.body`
 
-/-- The two non-trivial outputs of `implRoundStep` (indices 0 and 4) expressed
-as explicit formulas, with `(implRoundStep ...)[k]` reducing to them by `rfl`.
-Used by `compress_u64_loop1_body_spec` to bypass simp-based unfolding of
-`implRoundStep`'s body during proof-term construction. -/
+The `implRoundStep_get_{0..7}` projection lemmas below collectively give a
+constant-cost unfolding of `(implRoundStep w t #v[a..h])[k]` for each of the
+eight output slots:
+
+- Slots `0` (new `a`) and `4` (new `e`) compute the round-step formula:
+  these are the two non-trivial conjuncts of `compress_u64_loop1_body_spec`.
+- Slots `1, 2, 3, 5, 6, 7` are simple register copies (`b, c, d, e, f, g`
+  shift one slot, expressed as `Vector` indexing into the constructor); they
+  exist purely so the same `simp only [implRoundStep_get_*]` set fires on
+  every conjunct without a generic `Vector.getElem`-on-`#v[...]` simp lemma.
+
+All eight are `rfl` because `implRoundStep` builds its output via a literal
+`#v[...]` constructor. Naming them individually (rather than a single
+multi-conjunct lemma) keeps the simp set explicit at each call site. -/
+
 private theorem implRoundStep_get_0 (w : SHS.SHA512.Impl.Schedule) (t : Nat)
     (a' b' c' d' e' f' g' h' : UInt64) :
     (SHS.Equiv.SHA512.Compress.Impl.implRoundStep w t
@@ -191,6 +214,11 @@ private theorem implRoundStep_get_7 (w : SHS.SHA512.Impl.Schedule) (t : Nat)
     (SHS.Equiv.SHA512.Compress.Impl.implRoundStep w t
         #v[a', b', c', d', e', f', g', h'])[7] = g' := rfl
 
+/- Per-iteration body of the 80-round main loop: ~28 `step`s carry the
+   nine round inputs through `Σ₀`/`Σ₁`/`Ch`/`Maj` plus the running
+   wrapping additions; bridging back through the U64 `rotr_bridge_*`
+   lemmas roughly triples the default heartbeat budget. 1M matches
+   `compress_u64_loop0_body_spec`. -/
 set_option maxHeartbeats 1000000 in
 theorem compress_u64_loop1_body_spec
     (w : Array U64 80#usize) (iter : core.ops.range.Range Usize)
@@ -231,13 +259,20 @@ theorem compress_u64_loop1_body_spec
              implRoundStep_get_4, implRoundStep_get_5, implRoundStep_get_6, implRoundStep_get_7]
   have heqAdd : core.num.U64.wrapping_add = UScalar.wrapping_add := rfl
   have heqRot : core.num.U64.rotate_right = @UScalar.rotate_right .U64 := rfl
+  /- Of the eight tuple-projection conjuncts, six are register copies (slots
+     `b, c, d, f, g, h`) closed by `trivial` after `implRoundStep_get_*`
+     unfolds the projection. Only slot `0` (new `a`) and slot `4` (new `e`)
+     carry the round-step formula and need the U64 bridge simp set. -/
   refine ⟨?_, trivial, trivial, trivial, ?_, trivial, trivial, trivial⟩
-  · /- a' conjunct -/
+  · /- a' conjunct: Σ₀ + Σ₁ + Ch + Maj. Uses all six rotation bridges
+       (14, 18, 28, 34, 39, 41). -/
     simp only [heqAdd, heqRot, toUInt64_wrapping_add, toUInt64_xor, toUInt64_and, toUInt64_not,
                rotr64_bridge_14, rotr64_bridge_18, rotr64_bridge_28,
                rotr64_bridge_34, rotr64_bridge_39, rotr64_bridge_41, hK, hw]
     rfl
-  · /- e' conjunct -/
+  · /- e' conjunct: `d + t₁` only (Σ₁ + Ch). Σ₀ rotations (28/34/39) and
+       `Maj` drop out because `t₂` is unused on this goal — the simp set
+       is correspondingly smaller than the a'-conjunct above. -/
     simp only [heqAdd, heqRot, toUInt64_wrapping_add, toUInt64_xor, toUInt64_and, toUInt64_not,
                rotr64_bridge_14, rotr64_bridge_18, rotr64_bridge_41, hK, hw]
     rfl

@@ -35,7 +35,47 @@ private def specByte (state : Array U64 8#usize) (out0 : Array U8 64#usize)
             UInt64.ofNat ((7 - (j % 8)) * 8)) &&& 0xff).toUInt8
   else toUInt8 (out0.val[j]!)
 
--- NOTE: takes ~90-120s to elaborate; bump build timeout accordingly.
+/-
+Strategy:
+
+The proof is shaped around `loop.spec_decr_nat`, with measure
+`8 - iter.start.val` and an invariant (`hinv`) saying that every byte
+slot `j < 64` is either already a `specByte` (if `j / 8 < iter.start`)
+or still the input byte. The proof has two arms:
+
+* **Step arm** (`iter.start.val < 8`): the loop body emits 8 bytes from
+  state word `i1 = state[iter.start.val]`. After `cases (iter.start + 1)`
+  to get a usable carry result, `iterate 24 step` walks the eight-byte
+  cascade (8 byte writes, 3 monadic ops each: shift+getElem, index+1,
+  array set). Two helper `have`s drive the invariant rebuild:
+  * `key_at k hk` resolves `a.val[8*iter.start.val + k]!` in the eight-
+    deep nested `.set` chain to the right `i{2,4,...,16}` literal;
+  * `key_out k hk hklt` resolves indices outside the just-written
+    block to the previous `out'.val[k]!`.
+  Then `by_cases hjblock : j / 8 = iter.start.val` separates the
+  freshly-written block (closed by `interval_cases (j % 8)` plus an
+  eight-way `first | ...` cascade dispatching on
+  `toUInt8_to_be_bytes_get`) from earlier blocks (closed via `hinv_j`
+  and `key_out`).
+
+* **Done arm** (`8 ≤ iter.start.val`): the invariant gives a pointwise
+  byte equality; `Vector.ext` reduces vector equality to per-index, and
+  the `arrayU{8,64}ToVec_getElem` bridges + `getElem!_pos` reconcile
+  the `Vector.ofFn` projection against the `.val[j]!` form `hinv`
+  produces.
+
+Mirrors `Sha256/Loop1.lean::sha256_inner_loop1_spec` at width 32 / 64
+(8 state words of 8 bytes each, vs SHA-256's 8 words of 4 bytes).
+-/
+/-
+The `maxHeartbeats 16000000` budget below is load-bearing: each
+iteration of the byte-extraction loop unfolds dozens of monadic calls,
+and the invariant rebuild splits on `j / 8` against `iter.start.val`,
+pushing elaboration ~80× past the 200K default. 16M is the smallest
+power-of-two budget that closes; lowering it produces a deterministic
+timeout. NOTE: this proof takes ~90-120s wall-clock — bump the build
+timeout accordingly.
+-/
 set_option maxHeartbeats 16000000 in
 theorem sha512_inner_loop1_spec
     (state : Array U64 8#usize) (out : Array U8 64#usize) :
@@ -61,7 +101,8 @@ theorem sha512_inner_loop1_spec
     unfold Extraction.sha512_inner_loop1.body
     rw [core.iter.range.IteratorRange.next_Usize_def, hend]
     by_cases hlt : iter.start.val < 8
-    · simp only [hlt, ↓reduceIte]
+    · -- Step arm: emit 8 bytes from state word `iter.start.val`.
+      simp only [hlt, ↓reduceIte]
       have hadd := @UScalar.add_spec _ iter.start 1#usize (by scalar_tac)
       simp only [spec, theta] at hadd
       revert hadd
@@ -112,6 +153,13 @@ theorem sha512_inner_loop1_spec
           have hjmod : j % 8 < 8 := by agrind
           have hkey := key_at (j % 8) hjmod
           rw [← show j = 8 * iter.start.val + j % 8 from by agrind] at hkey; rw [hkey]
+          /- The eight `i{2,4,…,16}_post` postconditions are not
+             syntactically uniform (each names a different shift
+             constant), so a single `simp [*]` will not close all
+             branches. `interval_cases (j % 8)` produces the 8 byte
+             positions; for each, the `first | ...` cascade picks the
+             matching post-hypothesis and closes via
+             `toUInt8_to_be_bytes_get` at the right byte index. -/
           interval_cases (j % 8) <;> norm_num only <;>
             first
               | (rw [i2_post]; exact toUInt8_to_be_bytes_get i1 0 (by norm_num))
@@ -126,7 +174,8 @@ theorem sha512_inner_loop1_spec
           simp only [show j / 8 < iter.start.val + 1 ↔ j / 8 < iter.start.val
             from by agrind] at hinv_j ⊢; exact hinv_j
       | fail _ | div => intro h; exact h.elim
-    · simp only [hlt, ↓reduceIte, bind_tc_ok]
+    · -- Done arm: invariant already covers every byte; reconcile shapes.
+      simp only [hlt, ↓reduceIte, bind_tc_ok]
       apply Vector.ext
       intro j hj
       have hjlt : j < 64 := by agrind

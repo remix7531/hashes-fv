@@ -30,6 +30,25 @@ The SHA-256 corollary (`Sha256.lean::sha256_impl_spec`) instantiates this
 at `iv = consts.H256_256, iv_vec = Impl.H256_256` and bridges through
 `Local.sha256_eq_sha2Inner256`.  SHA-224 (`Sha224.lean::sha224_spec`) uses
 the corollary at `iv = consts.H256_224, iv_vec = Local.H256_224`. -/
+/- Strategy: Three sub-bridges in order.
+
+   (1) Loop0 / blockwise compression. `sha256_inner_loop0_spec` reduces
+       the Aeneas loop body to `Fin.foldl out.val (loop0_step …) iv`;
+       `hstate` carries the state forward as the full-block-count
+       `Fin.foldl` over `data.length / 64`.
+
+   (2) Tail padding. `set_back 128#u8` holds the residue bytes plus the
+       trailing `0x80` marker; `vA` is the canonical Vector view.
+       `hfull_match` proves byte-equality. `padded_block_spec` installs
+       the U64 BE length tag in the final block. `htotal` bridges the
+       Aeneas `total_bits : U64` to `data.length.toUInt64 <<< 3`.
+
+   (3) Loop1 / digest extraction. `sha256_inner_loop1_spec` collects the
+       8 U32 state words into the 32-byte BE-encoded output.
+
+   The `≥ 56` / `< 56` split mirrors the FIPS 180-4 padding shape: the
+   residue plus marker either fits into the last block or needs a
+   second compression with a zero-prefixed padding block. -/
 theorem sha2_inner_spec
     (iv : Array U32 8#usize) (iv_vec : Vector UInt32 8)
     (hiv : arrayU32ToVec iv = iv_vec)
@@ -38,9 +57,15 @@ theorem sha2_inner_spec
     ⦃ out => arrayU8ToVec out = Local.sha2Inner256 iv_vec (sliceToByteArray data) ⦄ := by
   unfold Extraction.sha256_inner
   step
-  · show (6 : Int) < (System.Platform.numBits : Int)
+  · /- Shift-amount bound: `>>> 6` is safe on `usize` because both 32-bit and
+       64-bit platforms admit shifting by 6.  `numBits_eq` enumerates the two
+       cases. -/
+    show (6 : Int) < (System.Platform.numBits : Int)
     rcases System.Platform.numBits_eq with h | h <;> rw [h] <;> decide
   step
+  /- `hblocks`: `out` is the full-block count of `data` (`data.length / 64`),
+     because Aeneas computes it as `data.len >>> 6`.  `hbl` lifts this to the
+     standard inequality `out * 64 ≤ data.length` needed by Loop0's spec. -/
   have hblocks : (out.val : Nat) = data.length / 64 := by
     rw [out_post1, Nat.shiftRight_eq_div_pow]; rfl
   have hbl : out.val * 64 ≤ data.length := by
@@ -53,7 +78,13 @@ theorem sha2_inner_spec
     intro s hs; rw [hs, hiv]
   apply spec_bind hloop0
   intro state hstate
+  /- The two unguarded `step`s consume the `total_bits` computation
+     (`data.len * 8 → U64`) and the residue-length `&&& 63` bind.  Kept as
+     `iterate` because each is a single Aeneas-emitted let-bind. -/
   iterate 2 step
+  /- `hrem_mod`: the Aeneas `data.len &&& 63` is the FIPS residue length
+     `data.length % 64`.  The `&&&`-to-`%` reduction is the standard
+     `Nat.and_two_pow_sub_one_eq_mod` lemma at `n = 6`. -/
   have hrem_mod : remaining.val = data.length % 64 := by
     rw [remaining_post1]
     show ((data.len.val : Nat) &&& 63) = data.length % 64
@@ -75,10 +106,19 @@ theorem sha2_inner_spec
     have hlen : (index_mut_back s2).length = 64 := (index_mut_back s2).property; omega
   apply spec_bind (Std.Array.index_mut_usize_spec (index_mut_back s2) remaining hbound1)
   rintro ⟨val_at_rem, set_back⟩ ⟨hset_back, hval_at⟩
+  /- `vA` is the canonical 64-byte Vector view of the final block before
+     the length tag is written: residue bytes from `data` in positions
+     `[0, remaining)`, the FIPS marker `0x80` at position `remaining`, and
+     zeros in positions `(remaining, 64)`.  The padded length tag is
+     installed below by `padded_block_spec`. -/
   set vA : Vector UInt8 64 := Vector.ofFn fun i : Fin 64 =>
     if i.val < remaining.val then (sliceToByteArray data).get! (out.val * 64 + i.val)
     else if i.val = remaining.val then 0x80
     else 0 with hvA_def
+  /- `hfull_match` is the byte-equality bridge between the Aeneas
+     `set_back 128#u8` array and the canonical `vA`.  Three cases by
+     position relative to `remaining`: equal (marker `0x80`), below
+     (residue from `data`), above (zero padding). -/
   have hfull_match : ∀ (i : Nat) (hi : i < 64),
       toUInt8 ((set_back 128#u8).val[i]'(by simp [(set_back 128#u8).property]; omega)) =
         vA[i]'(by omega) := by
@@ -123,6 +163,10 @@ theorem sha2_inner_spec
           List.getElem!_replicate _ (show i < 64 from by omega)]
         show toUInt8 (0#u8 : U8) = _
         rw [if_neg (show ¬ i < remaining.val from by omega), if_neg hieq]; rfl
+  /- `htotal`: the Aeneas `total_bits : U64` (computed as
+     `data.len.cast U64 <<< 3`) equals `data.length.toUInt64 <<< 3` as a
+     BitVec.  Goes through `total_bits_bv_eq` (the BitVec-level bridge)
+     plus the `sliceToByteArray_size` rewrite to align the byte count. -/
   have htotal : toUInt64 total_bits = data.length.toUInt64 <<< 3 := by
     apply UInt64.toBitVec_inj.mp
     show total_bits.bv = (data.length.toUInt64 <<< 3).toBitVec
@@ -130,16 +174,28 @@ theorem sha2_inner_spec
         show i3 = UScalar.cast UScalarTy.U64 data.len from i3_post]
     have := total_bits_bv_eq data h; rwa [sliceToByteArray_size] at this
   have hsz : (sliceToByteArray data).size = data.length := by simp
+  /- `hvA_eq`: re-express `vA` in terms of `data.length / 64` and
+     `data.length % 64` (rather than `out.val`/`remaining.val`) so it
+     aligns with `Local.sha2Inner256`'s definition. -/
   have hvA_eq : vA = Vector.ofFn (fun k : Fin 64 =>
       if k.val < data.length % 64 then (sliceToByteArray data).get! (data.length / 64 * 64 + k.val)
       else if k.val = data.length % 64 then 128 else 0) := by
     rw [hvA_def, hrem_mod, hblocks]
+  /- `hstate_prefix`: re-express the loop-0 `state` (currently keyed on
+     `out.val`) as a `Fin.foldl` over `data.length / 64` — the form
+     consumed by `Local.sha2Inner256`. -/
   have hstate_prefix : arrayU32ToVec state =
       Fin.foldl (data.length / 64)
         (fun s i => Impl.compress s (Impl.toU32sFromBytes (sliceToByteArray data) (i.val * 64)))
         iv_vec := by rw [hstate, ← hblocks]; rfl
+  /- FIPS 180-4 padding split.  If `remaining ≥ 56`, the residue plus the
+     `0x80` marker overflow the last 8-byte length slot — the Aeneas code
+     compresses `set_back` first and then a second, zero-prefixed block
+     carrying the length tag.  If `remaining < 56`, the marker and length
+     tag both fit into the single final block. -/
   by_cases hge : remaining ≥ 56#usize
-  · simp only [hge, ↓reduceIte]
+  · /- `≥ 56` branch — extra compression block carries the length tag. -/
+    simp only [hge, ↓reduceIte]
     have hrem_ge56 : 56 ≤ remaining.val := by scalar_tac
     simp only [lift, bind_tc_ok, bind_assoc]
     set sb1 := (Array.make 1#usize [set_back 128#u8] List.length_singleton).to_slice with hsb1_def
@@ -151,6 +207,10 @@ theorem sha2_inner_spec
       apply Vector.ext; intro k hk; have hk64 : k < 64 := by simpa using hk
       rw [arrayU8ToVec_getElem (h := hk64)]; exact hfull_match k hk64
     rw [hsb_to_vA] at hstateA
+    /- `vB` is the all-zero 64-byte Vector view of the extra padding block
+       before the length tag is written.  `hlow_zero` is the byte-equality
+       bridge between the Aeneas `Array.repeat 64 0` and `vB` on the low
+       56 bytes (the high 8 are overwritten by the length tag). -/
     set vB : Vector UInt8 64 := Vector.replicate 64 (0 : UInt8) with hvB_def
     have hlow_zero : ∀ (i : Nat) (hi : i < 56),
         toUInt8 ((Array.repeat 64#usize (0#u8 : U8)).val[i]'(by simp; omega)) =
@@ -164,6 +224,11 @@ theorem sha2_inner_spec
         rw [hval, List.getElem!_replicate _ (show i < 64 from by omega)]
       rw [hbyte, hvB_def, Vector.getElem_replicate]; rfl
     have hpad := padded_block_spec (Array.repeat 64#usize 0#u8) vB hlow_zero total_bits
+    /- The `show` re-displays the current goal explicitly so we can identify
+       the subterm that `padded_block_reshape` rewrites: the
+       `index_mut`/`copy_from_slice` sequence that installs the length tag
+       in `[56, 64)`.  Rewriting collapses this back into the functional
+       form `padded_block_spec` produces, ready to consume `hpad`. -/
     show WP.spec (do
         let (s3, index_mut_back2) ←
           core.array.Array.index_mut (core.ops.index.IndexMutSlice
@@ -205,12 +270,14 @@ theorem sha2_inner_spec
             (fun s i => Impl.compress s (Impl.toU32sFromBytes (sliceToByteArray data) (i.val * 64)))
             iv_vec)
           (Impl.toU32s (Vector.ofFn (fun k : Fin 64 =>
-            if k.val < data.length % 64 then (sliceToByteArray data).get! (data.length / 64 * 64 + k.val)
+            if k.val < data.length % 64 then
+              (sliceToByteArray data).get! (data.length / 64 * 64 + k.val)
             else if k.val = data.length % 64 then 128 else 0))) := by
       rw [hstateA, hstate_prefix, ← hvA_eq]
     have hcond : ¬ data.length % 64 < 56 := by rw [← hrem_mod]; scalar_tac
     rw [hstate2, hstate_full, hfb_full]; simp only [hsz, if_neg hcond]; rfl
-  · simp only [hge, ↓reduceIte]
+  · /- `< 56` branch — single final block carries marker + length tag. -/
+    simp only [hge, ↓reduceIte]
     have hrem_lt56 : remaining.val < 56 := by scalar_tac
     have hpad := padded_block_spec (set_back 128#u8) vA
       (fun i hi => hfull_match i (by omega)) total_bits
@@ -249,7 +316,8 @@ theorem sha2_inner_spec
         Vector.ofFn (fun i : Fin 64 =>
           if i.val < 56 then
             (Vector.ofFn (fun k : Fin 64 =>
-              if k.val < data.length % 64 then (sliceToByteArray data).get! (data.length / 64 * 64 + k.val)
+              if k.val < data.length % 64 then
+                (sliceToByteArray data).get! (data.length / 64 * 64 + k.val)
               else if k.val = data.length % 64 then 128 else 0))[i]
           else (data.length.toUInt64 <<< 3 >>> ((63 - i.val) * 8).toUInt64 &&& 255).toUInt8) := by
       rw [hfb, ← hvA_eq]; apply Vector.ext; intro i hi; simp only [Vector.getElem_ofFn]

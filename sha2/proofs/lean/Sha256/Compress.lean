@@ -23,6 +23,13 @@ Hooking Aeneas's `compress_u32_loop` into `Fin.foldl 64 tupledRoundStep`.
 The bridge to `Fin.foldl 64 Impl.roundStep` over `Impl.RoundState` happens
 one section down in `compress_u32_spec`, via `finFoldl_roundStep_eq_tupled`. -/
 
+/- Strategy: apply `loop.spec_decr_nat` with measure `64 - start.val` and an
+   invariant capturing `cur = partialFinFoldl 64 tupledRoundStep start.val init`.
+   In the step case, `compress_u32_body_spec` produces the post-iteration
+   tuple; the new partial-fold equation follows from `partialFinFoldl_succ`. The
+   done case (`start = 64`) reduces the partial fold via `partialFinFoldl_full`.
+   Mirrors `Sha512/Compress.lean::compress_u64_loop1_spec` at width 32 / 64
+   rounds. -/
 theorem compress_u32_loop_spec
     (block : Array U32 16#usize) (a b c d e f g h : U32) :
     Extraction.sha256.soft_compact.compress_u32_loop
@@ -119,6 +126,11 @@ theorem compress_u32_loop_spec
 
 /-! ## Single-block compression -/
 
+/- The body threads 8 + 24 inline `step`s plus a `spec_bind` call into the
+   64-round loop spec, then bridges the impl-side fold via
+   `finFoldl_roundStep_eq_tupled`. The combined elaboration exceeds the
+   default 200K heartbeats by ~5×; 1M is the smallest round number that
+   leaves comfortable headroom for incremental edits. -/
 set_option maxHeartbeats 1000000 in
 theorem compress_u32_spec
     (state : Array U32 8#usize) (block : Array U32 16#usize) :
@@ -216,6 +228,14 @@ theorem compress_u32_spec
 
 /-! ## Multi-block compression -/
 
+/- Strategy: bridge the Aeneas slice-iter loop to a `List.foldl` over the
+   block list via `slice_iter_loop_eq_foldl`. The per-block action factors
+   into `to_u32s_spec` (byte block → word block) composed with
+   `compress_u32_spec` (single-block compression). A choice-erased
+   `f' : Array → Block → Array` extracts the `.ok` value of each iteration
+   so the loop spec can be stated in a fold-style without `Result`; the
+   `arrayU32ToVec` view then transports `f'` to the spec-level `f`.
+   Mirrors `Sha512/Compress.lean::compress512_spec` at width 32 / 64. -/
 theorem compress256_spec
     (state : Array U32 8#usize) (blocks : Slice (Array U8 64#usize)) :
     Extraction.sha256.compress256 state blocks

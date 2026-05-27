@@ -85,6 +85,15 @@ theorem compress_u32_body_spec
           ← arrayU32ToVec_getElem block iter.start.val hlt]; rfl
     have hK : toUInt32 i9 = Impl.K32[(⟨iter.start.val, hi⟩ : Fin 64)] := by
       rw [i9_post]; exact K32_eq iter.start.val hi
+    /- Refine away the seven trivial structural conjuncts and the schedule
+       conjunct (already proved by `r_post` / `rfl`), leaving two genuine
+       proof obligations: the new working-variable values `a1` and `e1`.
+       Strategy: lift the U32-side rotation and wrapping-add calls to
+       their `UScalar.*` form so the `rotr_bridge_*` lemmas can fire,
+       then materialise the 12 `UScalar.eq_of_val_eq` projections
+       (`hi3..hmaj`) once at this outer scope so both conjunct branches
+       reuse them via `subst`. Each cdot block then differs only in its
+       final `simp only` (rotation bridges that survive per conjunct). -/
     rw [show core.num.U32.rotate_right = @UScalar.rotate_right .U32 from rfl]
       at i1_post i2_post i4_post i12_post i13_post i15_post
     simp only [show core.num.U32.wrapping_add = UScalar.wrapping_add from rfl] at *
@@ -101,7 +110,9 @@ theorem compress_u32_body_spec
     have hi19 : i19 = b   &&& c   := UScalar.eq_of_val_eq i19_post1
     have hmaj : maj = i18 ^^^ i19 := UScalar.eq_of_val_eq maj_post1
     refine ⟨trivial, ?_, trivial, trivial, trivial, ?_, trivial, trivial, trivial⟩
-    · simp only [← rotr_bridge_2, ← rotr_bridge_6, ← rotr_bridge_11,
+    · -- Conjunct 2: new `a`-value (= t₁ + t₂). Uses both Σ₀ (2/13/22)
+      -- and Σ₁ (6/11/25) rotations since both `t₁` and `t₂` survive.
+      simp only [← rotr_bridge_2, ← rotr_bridge_6, ← rotr_bridge_11,
                  ← rotr_bridge_13, ← rotr_bridge_22, ← rotr_bridge_25]
       refine hw ▸ hK ▸ ?_
       subst hi3 hs1 hi5 hi7 hch hi14 hs0 hi16 hi17 hi18 hi19 hmaj
@@ -110,7 +121,10 @@ theorem compress_u32_body_spec
       simp only [toUInt32_wrapping_add, toUInt32_xor, toUInt32_and,
                  toUInt32_not, rotr_bridge_2, rotr_bridge_6, rotr_bridge_11,
                  rotr_bridge_13, rotr_bridge_22, rotr_bridge_25]
-    · simp only [← rotr_bridge_6, ← rotr_bridge_11, ← rotr_bridge_25]
+    · -- Conjunct 6: new `e`-value (= d + t₁). Same script as Conjunct 2
+      -- but only Σ₁ rotations (6, 11, 25) survive — Σ₀ (2, 13, 22) lives
+      -- only in `t₂`, which is unused on this goal.
+      simp only [← rotr_bridge_6, ← rotr_bridge_11, ← rotr_bridge_25]
       refine hw ▸ hK ▸ ?_
       subst hi3 hs1 hi5 hi7 hch hi14 hs0 hi16 hi17 hi18 hi19 hmaj
         i1_post i2_post i4_post i6_post i12_post i13_post i15_post
@@ -150,6 +164,11 @@ theorem compress_u32_body_spec
     have hi10 : i10 = UScalar.rotate_right w2 19#u32 := i10_post
     have hi11 : i11 = i9  ^^^ i10 := UScalar.eq_of_val_eq i11_post1
     have hs1  : s1  = i11 ^^^ i12 := UScalar.eq_of_val_eq s1_post1
+    /- Round-constant lookup and the 17 `UScalar.eq_of_val_eq` projections
+       (`hi22..hmaj`) are shared between Conjuncts 2 and 3 — lift them
+       above the `refine` so each cdot reuses the same chain via `subst`.
+       Conjunct 1 (schedule write) ignores these and only `subst`s the
+       schedule sub-chain (`hi3..hs1`). -/
     have hK : toUInt32 i30 = Impl.K32[(⟨iter.start.val, hi⟩ : Fin 64)] := by
       rw [i30_post]; exact K32_eq iter.start.val hi
     have hi22 : i22 = UScalar.rotate_right e 6#u32 := i22_post
@@ -171,7 +190,13 @@ theorem compress_u32_body_spec
     have hi40 : i40 = b   &&& c   := UScalar.eq_of_val_eq i40_post1
     have hmaj : maj = i39 ^^^ i40 := UScalar.eq_of_val_eq maj_post1
     refine ⟨?_, ?_, trivial, trivial, trivial, ?_, trivial, trivial, trivial⟩
-    · subst a1_post
+    · -- Conjunct 1: schedule-write equality. The LHS `Vector.set` is indexed by
+      -- the step-introduced `i21` (= `iter.start % 16` per `i21_post`); the RHS
+      -- is indexed by the spec-side `↑iter.start % 16`. After `simp only` aligns
+      -- the index, an explicit `congrArg` over `Vector.set <block> idx ·` peels
+      -- off the dependent bounds proof by proof irrelevance, leaving only the
+      -- value equality `toUInt32 new_w = …` for the round-step calculation.
+      subst a1_post
       rw [arrayU32ToVec_set (hi := by simp; omega)]
       simp only [i21_post]
       refine congrArg ((arrayU32ToVec block).set (↑iter.start % 16) · _) ?_
@@ -182,7 +207,8 @@ theorem compress_u32_body_spec
                  rotr_bridge_7, rotr_bridge_18, rotr_bridge_17, rotr_bridge_19,
                  h_sh3, h_sh10, hw15, hw2, hw16, hw7]
       rfl
-    · refine hw15 ▸ hw2 ▸ hw16 ▸ hw7 ▸ hK ▸ ?_
+    · -- Conjunct 2: new `a`-value = t₁ + t₂ (uses both Σ₀ and Σ₁ rotations).
+      refine hw15 ▸ hw2 ▸ hw16 ▸ hw7 ▸ hK ▸ ?_
       subst hi3 hi4 hi5 hs0 hi9 hi10 hi11 hs1
         hi22 hi23 hi24 hi25 hs11 hi26 hi28 hch hi33 hi34 hi35 hi36 hs01
         hi37 hi38 hi39 hi40 hmaj
@@ -193,7 +219,10 @@ theorem compress_u32_body_spec
                  rotr_bridge_2, rotr_bridge_6, rotr_bridge_7, rotr_bridge_11,
                  rotr_bridge_13, rotr_bridge_17, rotr_bridge_18, rotr_bridge_19,
                  rotr_bridge_22, rotr_bridge_25, h_sh3, h_sh10]
-    · refine hw15 ▸ hw2 ▸ hw16 ▸ hw7 ▸ hK ▸ ?_
+    · -- Conjunct 3: new `e`-value = d + t₁. Same script as Conjunct 2 —
+      -- only the surviving rotation bridges differ (Σ₀ drops out since
+      -- `t₂` is unused on this goal).
+      refine hw15 ▸ hw2 ▸ hw16 ▸ hw7 ▸ hK ▸ ?_
       subst hi3 hi4 hi5 hs0 hi9 hi10 hi11 hs1
         hi22 hi23 hi24 hi25 hs11 hi26 hi28 hch hi33 hi34 hi35 hi36 hs01
         hi37 hi38 hi39 hi40 hmaj

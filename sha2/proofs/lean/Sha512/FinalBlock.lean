@@ -74,6 +74,14 @@ final block has 16-byte length tag (instead of 8); positions `[112..120)`
 hold the high 8 bytes of the U128 (zero when `data.length < 2^61`) and
 positions `[120..128)` hold the low 8 bytes (the U64 BE-encoding of
 `data.length * 8`). -/
+/- Strategy: After resolving `index_mut`, the Aeneas side becomes a single
+   `setSlice!` of the 16 BE bytes of `total_bits` into positions
+   `[112, 128)`. `Vector.ext` reduces the goal to a byte-wise equation;
+   `by_cases k < 112` splits into:
+   - prefix `[0, 112)` — closed by the caller-supplied `hlow`;
+   - tail `[112, 128)` — discharged by `u128_be_bytes_match` (shift-mask
+     form of `total_bits.bv`). The mismatch
+     `127 - (112 + (k - 112)) = 127 - k` is closed by `omega`. -/
 theorem padded_block_spec_512
     (finalBlockB_bytes : Array U8 128#usize)
     (vB : Vector UInt8 128)
@@ -148,6 +156,10 @@ the U64 BE-encoding of `n`.  We use this to bridge between the Aeneas-side
 
 /-- For `n < 2 ^ 64` and `k < 8`, the byte at position `112 + k` of the
 U128 BE-encoding of `n` is zero. -/
+/- Strategy: Reduce both sides to `Nat` via `BitVec.eq_of_toNat_eq` and the
+   `BitVec.toNat_*` simp set. The load-bearing fact is `n >>> ((15 - k) * 8) = 0`:
+   because `k < 8`, the shift amount is at least `8 * 8 = 64` bits, and
+   `n < 2 ^ 64` makes the shifted value zero by `Nat.div_eq_of_lt`. -/
 theorem u128_be_byte_high_zero (n : Nat) (hn : n < 2 ^ 64) (k : Nat) (hk : k < 8) :
     (⟨BitVec.setWidth 8 ((BitVec.ofNat 128 n >>> ((15 - k) * 8)) &&&
         BitVec.ofNat 128 0xff)⟩ : UInt8) = 0 := by
@@ -169,6 +181,20 @@ theorem u128_be_byte_high_zero (n : Nat) (hn : n < 2 ^ 64) (k : Nat) (hk : k < 8
 /-- For `n < 2 ^ 64` and `k ∈ [8..16)`, the byte at position `112 + k` of
 the U128 BE-encoding of `n` equals the byte at position `k - 8` of the
 U64 BE-encoding of `n.toUInt64`. -/
+/- Strategy: Reduce both BV expressions to `Nat` and show they converge to the
+   common value `n >>> ((15 - k) * 8) % 256`. The two `Nat`-side reductions
+   are isolated into `hLHS` and `hRHS`; the final `rw` chains them together.
+
+   For `hLHS` (the 128-bit side), each `BitVec.toNat_*` lemma fires
+   straightforwardly because all values fit under `2 ^ 128`.
+
+   For `hRHS` (the 64-bit side), the subtlety is `UInt64`'s `>>>`: it shifts
+   by a `UInt64` amount, and Lean's BV semantics for `bv >>> bv` first
+   reduces the shift amount modulo the width via `BV.umod`. The
+   `hcast_shift_nat` step proves that this `umod 64` is a no-op when
+   `(15 - k) * 8 < 64` (true because `k < 16` makes `15 - k ≤ 7`). The
+   `rfl`-rewrite between `(bv >>> bv)` and `(bv >>> bv.toNat)` is purely
+   definitional — kept inline because no named lemma exists for it. -/
 theorem u128_be_byte_low_eq_u64 (n : Nat) (hn : n < 2 ^ 64) (k : Nat)
     (_hk_lo : 8 ≤ k) (_hk_hi : k < 16) :
     (⟨BitVec.setWidth 8 ((BitVec.ofNat 128 n >>> ((15 - k) * 8)) &&&
@@ -187,14 +213,19 @@ theorem u128_be_byte_low_eq_u64 (n : Nat) (hn : n < 2 ^ 64) (k : Nat)
     rw [show (0xff : Nat) = 256 - 1 from rfl, Nat.and_two_pow_sub_one_eq_mod (n := 8)]
   have hand_lt : n >>> ((15 - k) * 8) &&& 0xff < 2 ^ 8 := by
     rw [hand_eq]; exact Nat.mod_lt _ (by decide)
-  /- Compute LHS as Nat -/
+  /- LHS (128-bit form) reduces to `n >>> ((15 - k) * 8) % 256` via the
+     standard `BitVec.toNat_*` simp set; the `0xff` mask is converted to a
+     `% 256` via `hand_eq`. -/
   have hLHS : (BitVec.setWidth 8 ((BitVec.ofNat 128 n >>> ((15 - k) * 8)) &&&
                   BitVec.ofNat 128 0xff)).toNat = (n >>> ((15 - k) * 8)) % 256 := by
     simp only [BitVec.toNat_setWidth, BitVec.toNat_and, BitVec.toNat_ushiftRight,
       BitVec.toNat_ofNat]
     rw [show ((0xff : Nat) % 2 ^ 128) = 0xff from by decide, Nat.mod_eq_of_lt h128lt,
         Nat.mod_eq_of_lt hand_lt, hand_eq]
-  /- Compute RHS as Nat -/
+  /- RHS (64-bit form) also reduces to `n >>> ((15 - k) * 8) % 256`. The
+     wrinkle is that `UInt64`'s `>>>` first reduces the shift amount modulo 64
+     (`hcast_shift_nat`); we then convert `bv >>> bv` to `bv >>> bv.toNat`
+     definitionally so `BitVec.toNat_ushiftRight` applies. -/
   have hRHS : ((((UInt64.ofNat n) >>> ((15 - k) * 8).toUInt64) &&&
                   0xff).toBitVec.setWidth 8).toNat = (n >>> ((15 - k) * 8)) % 256 := by
     simp only [BitVec.toNat_setWidth, UInt64.toBitVec_and, UInt64.toBitVec_shiftRight,

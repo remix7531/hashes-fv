@@ -67,6 +67,16 @@ This is the load-bearing combinatorial lemma: it walks through one
 `core.array.Array.index_mut` (range `[56..64]`) + `to_be_bytes` +
 `copy_from_slice` + `index_mut_back` chain, using
 `u64_be_bytes_match` for the per-byte BE equality. -/
+/- Strategy: After resolving `index_mut`, the Aeneas side becomes a single
+   `setSlice!` of the 8 BE bytes of `total_bits` into positions `[56, 64)`.
+   `Vector.ext` reduces the goal to a byte-wise equation; `by_cases k < 56`
+   splits into: (low prefix) `List.getElem!_setSlice!_prefix` shows the
+   bytes are untouched, closed by `hlow`; (high tail) `List.getElem!_setSlice!_middle`
+   exposes the `to_be_bytes` byte at offset `k - 56`, closed by
+   `u64_be_bytes_match`. 64-byte analogue of
+   `Sha512/FinalBlock.lean::padded_block_spec_512`; the SHA-512 sibling
+   carries the additional U128-vs-U64 split because its length tag is 16
+   bytes (the high 8 of which are zero under the FIPS 180-4 length cap). -/
 theorem padded_block_spec
     (finalBlockB_bytes : Array U8 64#usize)
     (vB : Vector UInt8 64)

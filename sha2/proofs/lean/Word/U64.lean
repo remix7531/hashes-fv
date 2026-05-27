@@ -100,6 +100,24 @@ theorem rotr64_bridge_61 (x : U64) :
 open SHS.SHA512 in
 /-- The eight-byte BE decoder in Aeneas's stdlib equals the shift-or chain
 that `Impl.beU64` materializes. -/
+/-
+Strategy: Pattern-match the 8-byte array to expose its bytes `b0..b7`, then
+prove the goal at the `BitVec`-level via `UInt64.toBitVec_inj`. The proof
+walks three layers:
+
+1.  **LE byte ladder.** `h0..h8` are eight definitional (`rfl`) unfoldings of
+    `BitVec.fromLEBytes` on lists of length 0..8. They expose the recursive
+    `setWidth ||| shift-left` structure one byte at a time.
+2.  **BE ↔ LE cast.** `hBE` is the single `rfl`-cast that rewrites
+    `BitVec.fromBEBytes [b0..b7]` to `BitVec.fromLEBytes [b7..b0]` (reversed
+    list).  This is the only non-`setWidth`/`||| <<<` rewrite needed.
+3.  **Bit-blast closer.** After `simp only` collapses the ladder against the
+    `UInt8.toUInt64`/`<<<`/`|||` simp set, `BitVec.eq_of_getLsbD_eq` reduces
+    the equality to a per-bit check, dispatched by
+    `interval_cases i <;> simp` over the 64 bit positions.
+
+Mirrors `Word/U32.lean::toUInt32_from_be_bytes` at width 32 / 4 bytes.
+-/
 theorem toUInt64_from_be_bytes (a : Array U8 8#usize) :
     toUInt64 (core.num.U64.from_be_bytes a) =
       ((toUInt8 a.val[0]!).toUInt64 <<< 56) |||
@@ -178,6 +196,18 @@ open SHS.SHA512 in
 8-byte slice `[block[8j], block[8j+1], …, block[8j+7]]`.
 The hypothesis is what the calling site materializes from the
 `to_u64s` extracted closure. -/
+/-
+Strategy: Rewrite the LHS by the previous theorem `toUInt64_from_be_bytes`
+and the slice equation `hchunk`, then unfold `Impl.beU64` on the RHS. The
+two sides then differ only in how byte access is phrased — `block.val[…]!`
+on the left vs `(arrayU8ToVec block)[…]` on the right. The local helper
+`hidx` discharges that mismatch for any in-range index by reducing both
+forms to `toUInt8 (block.val[i]!)`. Eight `← hidx` rewrites align the eight
+byte positions, after which `rfl` closes the goal.
+
+Mirrors `Word/U32.lean::toUInt32_from_be_bytes_eq_beU32` at width 32 /
+4 bytes (block size 64 vs 128, 16 four-byte chunks vs 16 eight-byte chunks).
+-/
 theorem toUInt64_from_be_bytes_eq_beU64
     (block : Array U8 128#usize) (chunk : Array U8 8#usize)
     (j : Nat) (hj : j < 16)

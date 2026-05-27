@@ -23,6 +23,11 @@ open Aeneas Aeneas.Std Result WP SHS.SHA512
 
 /-- Bridge: `UInt64.ofNat (data.length * 8) = data.length.toUInt64 <<< 3`,
 under the FIPS 180-4 length cap `data.length < 2 ^ 61`. -/
+/- Strategy: Lift to `BitVec 64`, then to `Nat`. The two sides become
+   `n * 8 % 2 ^ 64` (via `BitVec.ofNat`) and `(n % 2 ^ 64) <<< 3 % 2 ^ 64`
+   (via `toUInt64.toBitVec.toNat`). Under `n < 2 ^ 61 < 2 ^ 64`, the
+   outer `n` modulus vanishes and `Nat.shiftLeft_eq` rewrites the shift
+   to multiplication by `2 ^ 3 = 8`. -/
 private theorem hbridge_u64_aux (n : Nat) (h : n < 2 ^ 61) :
     UInt64.ofNat (n * 8) = n.toUInt64 <<< 3 := by
   apply UInt64.toBitVec_inj.mp
@@ -43,6 +48,12 @@ private theorem hbridge_u64_aux (n : Nat) (h : n < 2 ^ 61) :
 /-- For `i ∈ [112, 128)`, the U128 BE shift-mask byte of `BitVec.ofNat 128 (n * 8)`
 splits as: zero for `i ∈ [112, 120)`, U64 shift-mask of `n.toUInt64 <<< 3` for
 `i ∈ [120, 128)`, under the FIPS 180-4 length cap `n < 2 ^ 61`. -/
+/- Strategy: Reindex `127 - i = 15 - (i - 112)` so the high (`i < 120`)
+   and low (`i ≥ 120`) halves index into the 0..15 byte position. Then
+   `by_cases hi120 : i < 120` and dispatch each half to its dedicated
+   bridge: `u128_be_byte_high_zero` for the high bytes (which are forced
+   to zero by `n * 8 < 2 ^ 64`) and `u128_be_byte_low_eq_u64`
+   composed with `hbridge_u64_aux` for the low bytes. -/
 private theorem u128_be_byte_match_aux (n : Nat) (h : n < 2 ^ 61) (i : Nat)
     (hi112 : ¬ i < 112) (hi128 : i < 128) :
     (⟨BitVec.setWidth 8
@@ -60,6 +71,13 @@ private theorem u128_be_byte_match_aux (n : Nat) (h : n < 2 ^ 61) (i : Nat)
   · rw [if_neg hi120, u128_be_byte_low_eq_u64 (n * 8) hlen8 (i - 112) (by omega) (by omega),
         hbridge_u64_aux n h]
 
+/- `sha2_inner_spec_512` orchestrates the entire SHA-512 inner core: the
+   blockwise compression loop, final-block padding, the post-loop
+   digest extraction, and the four IV-specific corollaries. The proof
+   threads >40 `step`s with `simp` over deep nested let-bindings; both
+   the heartbeat budget and the recursion depth need to be raised
+   accordingly (~20× default heartbeats, ~8× default `maxRecDepth`).
+   Tightening either limit produces deterministic timeouts. -/
 set_option maxHeartbeats 4000000 in
 set_option maxRecDepth 4000 in
 /-- IV-generic version: for any IV `iv` whose `arrayU64ToVec` view is
@@ -69,6 +87,28 @@ Impl-layer core applied to the same IV.
 The four public-digest specs (`sha512_spec`, `sha384_spec`,
 `sha512_256_spec`, `sha512_224_spec`) are corollaries at the appropriate
 IV bridged through `Local.sha512_eq_sha2Inner512` etc. -/
+/- Strategy: The proof threads three sub-bridges in order.
+
+   (1) Loop0 / blockwise compression. `sha512_inner_loop0_spec` reduces
+       the Aeneas loop body to `Fin.foldl out.val (loop0_step_512 …) iv`;
+       after `hstate` the state is the `Fin.foldl` over the full block
+       count `data.length / 128`.
+
+   (2) Tail padding. `set_back 128#u8` carries `data`'s residue bytes
+       plus the trailing `0x80` marker; `vA` is the canonical Vector
+       view. `hfull_match` proves byte-equality. The `padded_block_*`
+       lemmas reshape the final-block construction to expose the U128
+       length tag; `hbridge_u64_aux` + `u128_be_byte_match_aux` bridge
+       the U128 length encoding back to a U64 shift-and-mask sequence
+       (high 8 bytes are zero under the FIPS 180-4 length cap).
+
+   (3) Loop1 / digest extraction. `sha512_inner_loop1_spec` collects
+       the 8 U64 state words into the 64-byte BE-encoded output.
+
+   The `≥ 112` / `< 112` split mirrors the FIPS 180-4 padding shape:
+   the residue plus marker either fits into one extra block or needs a
+   second compression with a zero-prefixed padding block.
+   ↔ `Sha256/InnerSpec.lean::sha2_inner_spec`. -/
 theorem sha2_inner_spec_512
     (iv : Array U64 8#usize) (iv_vec : Vector UInt64 8)
     (hiv : arrayU64ToVec iv = iv_vec)
@@ -113,6 +153,13 @@ theorem sha2_inner_spec_512
     if i.val < remaining.val then (sliceToByteArray data).get! (out.val * 128 + i.val)
     else if i.val = remaining.val then 0x80
     else 0 with hvA_def
+  /- `hfull_match` proves that the Aeneas final block (data residue with the
+     `0x80` marker written at offset `remaining`) matches `vA` byte by byte.
+     Strategy: rewrite the Aeneas value as `replicate 128 0 |>.setSlice! 0 s2
+     |>.set remaining 128`. Then split on `i = remaining` (the marker
+     position), `i < remaining` (the copied residue from `s2`), and
+     `i > remaining` (untouched zero from the replicate). Each branch
+     matches the corresponding `vA` case. -/
   have hfull_match : ∀ (i : Nat) (hi : i < 128),
       toUInt8 ((set_back 128#u8).val[i]'(by simp [(set_back 128#u8).property]; omega)) =
         vA[i]'(by omega) := by
@@ -165,11 +212,19 @@ theorem sha2_inner_spec_512
           (SHS.SHA512.Impl.toU64sFromBytes (sliceToByteArray data) (i.val * 128)))
         iv_vec := by rw [hstate, ← hblocks]; rfl
   have hvA_eq : vA = Vector.ofFn (fun k : Fin 128 =>
-      if k.val < data.length % 128 then (sliceToByteArray data).get! (data.length / 128 * 128 + k.val)
+      if k.val < data.length % 128 then
+        (sliceToByteArray data).get! (data.length / 128 * 128 + k.val)
       else if k.val = data.length % 128 then 128 else 0) := by
     rw [hvA_def, hrem_mod, hblocks]
   by_cases hge : remaining ≥ 112#usize
-  · simp only [hge, ↓reduceIte, lift, bind_tc_ok, bind_assoc]
+  · /- ≥ 112 branch. The data residue plus the 0x80 marker overflows the
+       last 16 bytes reserved for the length tag, so FIPS 180-4 demands
+       two compressions: one on `set_back` (the residue + marker, padded
+       with zeros), then one on a fresh zero-prefixed block whose low 16
+       bytes hold the U128 BE length tag. `stateA` is the state after
+       the first compression; `fb` is the second (length-bearing) block;
+       `state2` is the state after the second compression. -/
+    simp only [hge, ↓reduceIte, lift, bind_tc_ok, bind_assoc]
     set sb1 := (Array.make 1#usize [set_back 128#u8] List.length_singleton).to_slice with hsb1_def
     have hsb1_val : sb1.val = [set_back 128#u8] := by rw [hsb1_def, Array.val_to_slice]; rfl
     apply spec_bind (compress512_spec state sb1)
@@ -193,6 +248,11 @@ theorem sha2_inner_spec_512
         rw [hval, List.getElem!_replicate _ (show i < 128 from by omega)]
       rw [hbyte, hvB_def, Vector.getElem_replicate]; rfl
     have hpad := padded_block_spec_512 (Array.repeat 128#usize 0#u8) vB hlow_zero total_bits
+    /- Reshape: peel the leading `index_mut`/`copy_from_slice`/`compress`
+       monadic chunk into the form expected by `padded_block_reshape_512`,
+       which factors the construction through a continuation closure on the
+       final block `final_block3`. After the rewrite, `hpad` discharges
+       the prefix and the continuation receives `fb`. -/
     show WP.spec (do
         let (s3, index_mut_back2) ←
           core.array.Array.index_mut (core.ops.index.IndexMutSlice
@@ -224,7 +284,9 @@ theorem sha2_inner_spec_512
         Vector.ofFn (fun i : Fin 128 =>
           if i.val < 112 then (0 : UInt8)
           else if i.val < 120 then 0
-          else ((data.length.toUInt64 <<< 3 >>> ((127 - i.val) * 8).toUInt64) &&& 255).toUInt8) := by
+          else
+            ((data.length.toUInt64 <<< 3 >>> ((127 - i.val) * 8).toUInt64)
+              &&& 255).toUInt8) := by
       rw [hfb]; apply Vector.ext; intro i hi; simp only [Vector.getElem_ofFn]
       by_cases hi112 : i < 112
       · rw [if_pos hi112, if_pos hi112, hvB_def]; simp
@@ -237,12 +299,20 @@ theorem sha2_inner_spec_512
               (SHS.SHA512.Impl.toU64sFromBytes (sliceToByteArray data) (i.val * 128)))
             iv_vec)
           (SHS.SHA512.Impl.toU64s (Vector.ofFn (fun k : Fin 128 =>
-            if k.val < data.length % 128 then (sliceToByteArray data).get! (data.length / 128 * 128 + k.val)
+            if k.val < data.length % 128 then
+              (sliceToByteArray data).get! (data.length / 128 * 128 + k.val)
             else if k.val = data.length % 128 then 128 else 0))) := by
       rw [hstateA, hstate_prefix, ← hvA_eq]
     have hcond : ¬ data.length % 128 < 112 := by rw [← hrem_mod]; simp at hge; omega
     rw [hstate2, hstate_full, hfb_full]; simp only [sliceToByteArray_size, if_neg hcond]; rfl
-  · simp only [hge, ↓reduceIte]
+  · /- < 112 branch. The residue + marker fits in the last 16-byte gap so
+       a single compression suffices: `padded_block_spec_512` reshapes
+       `set_back` to expose the U128 length tag in the low 16 bytes,
+       producing the final block `fb`; `compress512_spec state s6` then
+       gives the digest input state `state2`. The branch closes by
+       unfolding `sha2Inner512` and pushing through the `if_pos hcond`
+       (which reflects exactly the `remaining < 112` case). -/
+    simp only [hge, ↓reduceIte]
     have hrem_lt112 : remaining.val < 112 := by simp at hge; scalar_tac
     have hpad := padded_block_spec_512 (set_back 128#u8) vA
       (fun i hi => hfull_match i (by omega)) total_bits
@@ -280,10 +350,13 @@ theorem sha2_inner_spec_512
         Vector.ofFn (fun i : Fin 128 =>
           if i.val < 112 then
             (Vector.ofFn (fun k : Fin 128 =>
-              if k.val < data.length % 128 then (sliceToByteArray data).get! (data.length / 128 * 128 + k.val)
+              if k.val < data.length % 128 then
+                (sliceToByteArray data).get! (data.length / 128 * 128 + k.val)
               else if k.val = data.length % 128 then 128 else 0))[i]
           else if i.val < 120 then 0
-          else ((data.length.toUInt64 <<< 3 >>> ((127 - i.val) * 8).toUInt64) &&& 255).toUInt8) := by
+          else
+            ((data.length.toUInt64 <<< 3 >>> ((127 - i.val) * 8).toUInt64)
+              &&& 255).toUInt8) := by
       rw [hfb, ← hvA_eq]; apply Vector.ext; intro i hi; simp only [Vector.getElem_ofFn]
       by_cases hi112 : i < 112
       · rw [if_pos hi112, if_pos hi112]
