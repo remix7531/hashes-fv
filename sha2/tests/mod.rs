@@ -1,3 +1,4 @@
+#[cfg(any(feature = "sha256", feature = "sha512"))]
 use hex_literal::hex;
 
 #[cfg(feature = "sha256")]
