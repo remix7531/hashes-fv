@@ -85,34 +85,38 @@ theorem compress_u32_body_spec
           ← arrayU32ToVec_getElem block iter.start.val hlt]; rfl
     have hK : toUInt32 i9 = Impl.K32[(⟨iter.start.val, hi⟩ : Fin 64)] := by
       rw [i9_post]; exact K32_eq iter.start.val hi
+    rw [show core.num.U32.rotate_right = @UScalar.rotate_right .U32 from rfl]
+      at i1_post i2_post i4_post i12_post i13_post i15_post
+    simp only [show core.num.U32.wrapping_add = UScalar.wrapping_add from rfl] at *
+    have hi3  : i3  = i1  ^^^ i2  := UScalar.eq_of_val_eq i3_post1
+    have hs1  : s1  = i3  ^^^ i4  := UScalar.eq_of_val_eq s1_post1
+    have hi5  : i5  = e   &&& f   := UScalar.eq_of_val_eq i5_post1
+    have hi7  : i7  = i6  &&& g   := UScalar.eq_of_val_eq i7_post1
+    have hch  : ch  = i5  ^^^ i7  := UScalar.eq_of_val_eq ch_post1
+    have hi14 : i14 = i12 ^^^ i13 := UScalar.eq_of_val_eq i14_post1
+    have hs0  : s0  = i14 ^^^ i15 := UScalar.eq_of_val_eq s0_post1
+    have hi16 : i16 = a   &&& b   := UScalar.eq_of_val_eq i16_post1
+    have hi17 : i17 = a   &&& c   := UScalar.eq_of_val_eq i17_post1
+    have hi18 : i18 = i16 ^^^ i17 := UScalar.eq_of_val_eq i18_post1
+    have hi19 : i19 = b   &&& c   := UScalar.eq_of_val_eq i19_post1
+    have hmaj : maj = i18 ^^^ i19 := UScalar.eq_of_val_eq maj_post1
     refine ⟨trivial, ?_, trivial, trivial, trivial, ?_, trivial, trivial, trivial⟩
-    all_goals {
-      simp only [← rotr_bridge_2, ← rotr_bridge_6, ← rotr_bridge_11,
+    · simp only [← rotr_bridge_2, ← rotr_bridge_6, ← rotr_bridge_11,
                  ← rotr_bridge_13, ← rotr_bridge_22, ← rotr_bridge_25]
-      rw [show core.num.U32.rotate_right = @UScalar.rotate_right .U32 from rfl]
-        at i1_post i2_post i4_post i12_post i13_post i15_post
-      simp only [show core.num.U32.wrapping_add = UScalar.wrapping_add from rfl]
-        at *
       refine hw ▸ hK ▸ ?_
-      have hi3  : i3  = i1  ^^^ i2  := UScalar.eq_of_val_eq i3_post1
-      have hs1  : s1  = i3  ^^^ i4  := UScalar.eq_of_val_eq s1_post1
-      have hi5  : i5  = e   &&& f   := UScalar.eq_of_val_eq i5_post1
-      have hi7  : i7  = i6  &&& g   := UScalar.eq_of_val_eq i7_post1
-      have hch  : ch  = i5  ^^^ i7  := UScalar.eq_of_val_eq ch_post1
-      have hi14 : i14 = i12 ^^^ i13 := UScalar.eq_of_val_eq i14_post1
-      have hs0  : s0  = i14 ^^^ i15 := UScalar.eq_of_val_eq s0_post1
-      have hi16 : i16 = a   &&& b   := UScalar.eq_of_val_eq i16_post1
-      have hi17 : i17 = a   &&& c   := UScalar.eq_of_val_eq i17_post1
-      have hi18 : i18 = i16 ^^^ i17 := UScalar.eq_of_val_eq i18_post1
-      have hi19 : i19 = b   &&& c   := UScalar.eq_of_val_eq i19_post1
-      have hmaj : maj = i18 ^^^ i19 := UScalar.eq_of_val_eq maj_post1
       subst hi3 hs1 hi5 hi7 hch hi14 hs0 hi16 hi17 hi18 hi19 hmaj
         i1_post i2_post i4_post i6_post i12_post i13_post i15_post
         i8_post i10_post i11_post t1_post t2_post a1_post e1_post
       simp only [toUInt32_wrapping_add, toUInt32_xor, toUInt32_and,
                  toUInt32_not, rotr_bridge_2, rotr_bridge_6, rotr_bridge_11,
                  rotr_bridge_13, rotr_bridge_22, rotr_bridge_25]
-    }
+    · simp only [← rotr_bridge_6, ← rotr_bridge_11, ← rotr_bridge_25]
+      refine hw ▸ hK ▸ ?_
+      subst hi3 hs1 hi5 hi7 hch hi14 hs0 hi16 hi17 hi18 hi19 hmaj
+        i1_post i2_post i4_post i6_post i12_post i13_post i15_post
+        i8_post i10_post i11_post t1_post t2_post a1_post e1_post
+      simp only [toUInt32_wrapping_add, toUInt32_xor, toUInt32_and,
+                 toUInt32_not, rotr_bridge_6, rotr_bridge_11, rotr_bridge_25]
   · -- branch i ≥ 16: schedule extension then same working-var update as above.
     have hlt' : ¬ iter.start < 16#usize := hlt
     simp only [hlt', ↓reduceIte]
@@ -146,11 +150,31 @@ theorem compress_u32_body_spec
     have hi10 : i10 = UScalar.rotate_right w2 19#u32 := i10_post
     have hi11 : i11 = i9  ^^^ i10 := UScalar.eq_of_val_eq i11_post1
     have hs1  : s1  = i11 ^^^ i12 := UScalar.eq_of_val_eq s1_post1
+    have hK : toUInt32 i30 = Impl.K32[(⟨iter.start.val, hi⟩ : Fin 64)] := by
+      rw [i30_post]; exact K32_eq iter.start.val hi
+    have hi22 : i22 = UScalar.rotate_right e 6#u32 := i22_post
+    have hi23 : i23 = UScalar.rotate_right e 11#u32 := i23_post
+    have hi24 : i24 = i22 ^^^ i23 := UScalar.eq_of_val_eq i24_post1
+    have hi25 : i25 = UScalar.rotate_right e 25#u32 := i25_post
+    have hs11 : s11 = i24 ^^^ i25 := UScalar.eq_of_val_eq s11_post1
+    have hi26 : i26 = e   &&& f   := UScalar.eq_of_val_eq i26_post1
+    have hi28 : i28 = i27 &&& g   := UScalar.eq_of_val_eq i28_post1
+    have hch  : ch  = i26 ^^^ i28 := UScalar.eq_of_val_eq ch_post1
+    have hi33 : i33 = UScalar.rotate_right a 2#u32 := i33_post
+    have hi34 : i34 = UScalar.rotate_right a 13#u32 := i34_post
+    have hi35 : i35 = i33 ^^^ i34 := UScalar.eq_of_val_eq i35_post1
+    have hi36 : i36 = UScalar.rotate_right a 22#u32 := i36_post
+    have hs01 : s01 = i35 ^^^ i36 := UScalar.eq_of_val_eq s01_post1
+    have hi37 : i37 = a   &&& b   := UScalar.eq_of_val_eq i37_post1
+    have hi38 : i38 = a   &&& c   := UScalar.eq_of_val_eq i38_post1
+    have hi39 : i39 = i37 ^^^ i38 := UScalar.eq_of_val_eq i39_post1
+    have hi40 : i40 = b   &&& c   := UScalar.eq_of_val_eq i40_post1
+    have hmaj : maj = i39 ^^^ i40 := UScalar.eq_of_val_eq maj_post1
     refine ⟨?_, ?_, trivial, trivial, trivial, ?_, trivial, trivial, trivial⟩
-    · -- Conjunct 1: schedule-write equality.
-      subst a1_post
+    · subst a1_post
       rw [arrayU32ToVec_set (hi := by simp; omega)]
-      congr 1
+      simp only [i21_post]
+      refine congrArg ((arrayU32ToVec block).set (↑iter.start % 16) · _) ?_
       subst hi3 hi4 hi5 hs0 hi9 hi10 hi11 hs1
         new_w_post i16_post i20_post
       simp only [show core.num.U32.wrapping_add = UScalar.wrapping_add from rfl,
@@ -158,29 +182,7 @@ theorem compress_u32_body_spec
                  rotr_bridge_7, rotr_bridge_18, rotr_bridge_17, rotr_bridge_19,
                  h_sh3, h_sh10, hw15, hw2, hw16, hw7]
       rfl
-    -- Conjuncts 2 (a2-eq) and 3 (e1-eq): same template as i<16.
-    all_goals {
-      have hK : toUInt32 i30 = Impl.K32[(⟨iter.start.val, hi⟩ : Fin 64)] := by
-        rw [i30_post]; exact K32_eq iter.start.val hi
-      refine hw15 ▸ hw2 ▸ hw16 ▸ hw7 ▸ hK ▸ ?_
-      have hi22 : i22 = UScalar.rotate_right e 6#u32 := i22_post
-      have hi23 : i23 = UScalar.rotate_right e 11#u32 := i23_post
-      have hi24 : i24 = i22 ^^^ i23 := UScalar.eq_of_val_eq i24_post1
-      have hi25 : i25 = UScalar.rotate_right e 25#u32 := i25_post
-      have hs11 : s11 = i24 ^^^ i25 := UScalar.eq_of_val_eq s11_post1
-      have hi26 : i26 = e   &&& f   := UScalar.eq_of_val_eq i26_post1
-      have hi28 : i28 = i27 &&& g   := UScalar.eq_of_val_eq i28_post1
-      have hch  : ch  = i26 ^^^ i28 := UScalar.eq_of_val_eq ch_post1
-      have hi33 : i33 = UScalar.rotate_right a 2#u32 := i33_post
-      have hi34 : i34 = UScalar.rotate_right a 13#u32 := i34_post
-      have hi35 : i35 = i33 ^^^ i34 := UScalar.eq_of_val_eq i35_post1
-      have hi36 : i36 = UScalar.rotate_right a 22#u32 := i36_post
-      have hs01 : s01 = i35 ^^^ i36 := UScalar.eq_of_val_eq s01_post1
-      have hi37 : i37 = a   &&& b   := UScalar.eq_of_val_eq i37_post1
-      have hi38 : i38 = a   &&& c   := UScalar.eq_of_val_eq i38_post1
-      have hi39 : i39 = i37 ^^^ i38 := UScalar.eq_of_val_eq i39_post1
-      have hi40 : i40 = b   &&& c   := UScalar.eq_of_val_eq i40_post1
-      have hmaj : maj = i39 ^^^ i40 := UScalar.eq_of_val_eq maj_post1
+    · refine hw15 ▸ hw2 ▸ hw16 ▸ hw7 ▸ hK ▸ ?_
       subst hi3 hi4 hi5 hs0 hi9 hi10 hi11 hs1
         hi22 hi23 hi24 hi25 hs11 hi26 hi28 hch hi33 hi34 hi35 hi36 hs01
         hi37 hi38 hi39 hi40 hmaj
@@ -191,7 +193,17 @@ theorem compress_u32_body_spec
                  rotr_bridge_2, rotr_bridge_6, rotr_bridge_7, rotr_bridge_11,
                  rotr_bridge_13, rotr_bridge_17, rotr_bridge_18, rotr_bridge_19,
                  rotr_bridge_22, rotr_bridge_25, h_sh3, h_sh10]
-    }
+    · refine hw15 ▸ hw2 ▸ hw16 ▸ hw7 ▸ hK ▸ ?_
+      subst hi3 hi4 hi5 hs0 hi9 hi10 hi11 hs1
+        hi22 hi23 hi24 hi25 hs11 hi26 hi28 hch hi33 hi34 hi35 hi36 hs01
+        hi37 hi38 hi39 hi40 hmaj
+        new_w_post i16_post i20_post i27_post i29_post i31_post i32_post
+        t1_post t2_post a2_post e1_post
+      simp only [show core.num.U32.wrapping_add = UScalar.wrapping_add from rfl,
+                 toUInt32_wrapping_add, toUInt32_xor, toUInt32_and, toUInt32_not,
+                 rotr_bridge_6, rotr_bridge_7, rotr_bridge_11,
+                 rotr_bridge_17, rotr_bridge_18, rotr_bridge_19,
+                 rotr_bridge_25, h_sh3, h_sh10]
 
 /-! ## Tupled-state foldl bridge -/
 

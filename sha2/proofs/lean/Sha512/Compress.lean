@@ -259,7 +259,7 @@ theorem compress_u64_spec
     ⦃ out => arrayU64ToVec out =
         SHS.SHA512.Impl.compress (arrayU64ToVec state) (arrayU64ToVec block) ⦄ := by
   unfold Extraction.sha512.soft_compact.compress_u64
-  step ; step ; step ; step ; step ; step ; step ; step
+  iterate 8 step
   /- Schedule construction phase. -/
   step as ⟨discr1, hd1⟩
   obtain ⟨s, index_mut_back⟩ := discr1
@@ -281,9 +281,7 @@ theorem compress_u64_spec
   apply spec_bind (compress_u64_loop1_spec w2 a b c d e f g h)
   rintro ⟨a1, b1, c1, d1, e1, f1, g1, h1⟩ ⟨ha1, hb1, hc1, hd1', he1, hf1, hg1, hh1⟩
   /- Final 24 monadic steps (8 state reads + 8 wrapping_adds + 8 state writes). -/
-  step ; step ; step ; step ; step ; step ; step ; step
-  step ; step ; step ; step ; step ; step ; step ; step
-  step ; step ; step ; step ; step ; step ; step ; step
+  iterate 24 step
   /- Rename `i`-binder to avoid shadow with outer `out`. -/
   rename_i i i_post
   /- Bridge to Impl.compress via the foldl form. -/
@@ -367,16 +365,33 @@ theorem compress_u64_spec
   /- Final state write chain. -/
   have set_get_ne : ∀ {N : Usize} (a : Aeneas.Std.Array U64 N) (j : Usize) (v : U64) (k : ℕ),
       j.val ≠ k → (a.set j v).val[k]! = a.val[k]! := fun _ _ _ k hjk => by
-    show (_root_.List.set _ _ _)[k]! = _; simp [List.getElem!_eq_getElem?_getD, List.getElem?_set_ne hjk]
+    show (_root_.List.set _ _ _)[k]! = _
+    simp [List.getElem!_eq_getElem?_getD, List.getElem?_set_ne hjk]
   have hlen : state.val.length = 8 := state.property
   have hi : i = state.val[0]! := i_post
-  have hi2 : i2 = state.val[1]! := by rw [i2_post, state1_post]; repeat rw [set_get_ne _ _ _ _ (by decide)]
-  have hi4 : i4 = state.val[2]! := by rw [i4_post, state2_post, state1_post]; repeat rw [set_get_ne _ _ _ _ (by decide)]
-  have hi6 : i6 = state.val[3]! := by rw [i6_post, state3_post, state2_post, state1_post]; repeat rw [set_get_ne _ _ _ _ (by decide)]
-  have hi8 : i8 = state.val[4]! := by rw [i8_post, state4_post, state3_post, state2_post, state1_post]; repeat rw [set_get_ne _ _ _ _ (by decide)]
-  have hi10 : i10 = state.val[5]! := by rw [i10_post, state5_post, state4_post, state3_post, state2_post, state1_post]; repeat rw [set_get_ne _ _ _ _ (by decide)]
-  have hi12 : i12 = state.val[6]! := by rw [i12_post, state6_post, state5_post, state4_post, state3_post, state2_post, state1_post]; repeat rw [set_get_ne _ _ _ _ (by decide)]
-  have hi14 : i14 = state.val[7]! := by rw [i14_post, state7_post, state6_post, state5_post, state4_post, state3_post, state2_post, state1_post]; repeat rw [set_get_ne _ _ _ _ (by decide)]
+  have hi2 : i2 = state.val[1]! := by
+    rw [i2_post, state1_post]
+    repeat rw [set_get_ne _ _ _ _ (by decide)]
+  have hi4 : i4 = state.val[2]! := by
+    rw [i4_post, state2_post, state1_post]
+    repeat rw [set_get_ne _ _ _ _ (by decide)]
+  have hi6 : i6 = state.val[3]! := by
+    rw [i6_post, state3_post, state2_post, state1_post]
+    repeat rw [set_get_ne _ _ _ _ (by decide)]
+  have hi8 : i8 = state.val[4]! := by
+    rw [i8_post, state4_post, state3_post, state2_post, state1_post]
+    repeat rw [set_get_ne _ _ _ _ (by decide)]
+  have hi10 : i10 = state.val[5]! := by
+    rw [i10_post, state5_post, state4_post, state3_post, state2_post, state1_post]
+    repeat rw [set_get_ne _ _ _ _ (by decide)]
+  have hi12 : i12 = state.val[6]! := by
+    rw [i12_post, state6_post, state5_post, state4_post, state3_post,
+        state2_post, state1_post]
+    repeat rw [set_get_ne _ _ _ _ (by decide)]
+  have hi14 : i14 = state.val[7]! := by
+    rw [i14_post, state7_post, state6_post, state5_post, state4_post,
+        state3_post, state2_post, state1_post]
+    repeat rw [set_get_ne _ _ _ _ (by decide)]
   rw [out_post, state7_post, state6_post, state5_post, state4_post, state3_post,
       state2_post, state1_post, arrayU64ToVec_set8_chain,
       i1_post, i3_post, i5_post, i7_post, i9_post, i11_post, i13_post, i15_post,

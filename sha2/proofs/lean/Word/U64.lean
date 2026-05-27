@@ -132,10 +132,14 @@ theorem toUInt64_from_be_bytes (a : Array U8 8#usize) :
             ||| (⟨b7.bv⟩ : UInt8).toUInt64).toBitVec
     have h8 : BitVec.fromLEBytes [b7.bv, b6.bv, b5.bv, b4.bv, b3.bv, b2.bv, b1.bv, b0.bv]
         = BitVec.setWidth 64 b7.bv
-          ||| ((BitVec.fromLEBytes [b6.bv, b5.bv, b4.bv, b3.bv, b2.bv, b1.bv, b0.bv]).setWidth 64 <<< 8) := rfl
+          ||| ((BitVec.fromLEBytes
+                [b6.bv, b5.bv, b4.bv, b3.bv, b2.bv, b1.bv, b0.bv]).setWidth 64 <<< 8)
+        := rfl
     have h7 : BitVec.fromLEBytes [b6.bv, b5.bv, b4.bv, b3.bv, b2.bv, b1.bv, b0.bv]
         = BitVec.setWidth 56 b6.bv
-          ||| ((BitVec.fromLEBytes [b5.bv, b4.bv, b3.bv, b2.bv, b1.bv, b0.bv]).setWidth 56 <<< 8) := rfl
+          ||| ((BitVec.fromLEBytes
+                [b5.bv, b4.bv, b3.bv, b2.bv, b1.bv, b0.bv]).setWidth 56 <<< 8)
+        := rfl
     have h6 : BitVec.fromLEBytes [b5.bv, b4.bv, b3.bv, b2.bv, b1.bv, b0.bv]
         = BitVec.setWidth 48 b5.bv
           ||| ((BitVec.fromLEBytes [b4.bv, b3.bv, b2.bv, b1.bv, b0.bv]).setWidth 48 <<< 8) := rfl

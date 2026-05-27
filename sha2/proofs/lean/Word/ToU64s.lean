@@ -62,11 +62,25 @@ theorem to_u64s_spec (block : Array U8 128#usize) :
       have h := to_u64s_closure_call_mut_spec block b' j hj hinv
       simp only [spec, theta] at h ⊢
       revert h
-      cases Extraction.sha512.to_u64s.closure.Insts.CoreOpsFunctionFnMutTupleUsizeU64.call_mut b' j with
-      | ok p =>
-        intro h; simp only [wp_return] at h ⊢; exact ⟨h.1, hj, fun _ => hinv ▸ h.2⟩
-      | fail _ => exact (·.elim)
-      | div => exact (·.elim)
+      set call :=
+        Extraction.sha512.to_u64s.closure.Insts.CoreOpsFunctionFnMutTupleUsizeU64.call_mut
+          b' j
+      /- Three arms (cdot form to avoid the MISSION-banned named-constructor
+         `cases ... with | ok ... | ...`). Named hypotheses (`hfail`,
+         `hdiv`) per arm keep the two elim-form proofs distinct so Lean's
+         auto-generated `._proof_N` names cannot collide. -/
+      cases call
+      · -- ok p: dispatch the postcondition
+        rename_i p
+        intro h
+        simp only [wp_return] at h ⊢
+        exact ⟨h.1, hj, fun _ => hinv ▸ h.2⟩
+      · -- fail _: WP of `fail` is `False`, eliminate
+        intro hfail
+        exact hfail.elim
+      · -- div: WP of `div` is `False`, eliminate
+        intro hdiv
+        exact hdiv.elim
     · intro f f' j v hf hf' hP; subst hf hf'; exact hP
   · intro arr h
     refine Vector.ext fun k hk => ?_

@@ -155,10 +155,13 @@ theorem sha256_inner_loop1_spec
             | (rw [i8_post]; exact toUInt8_to_be_bytes_get i1 3 (by norm_num))
         · have hk_outside : j < 4*iter.start.val ∨ 4*iter.start.val + 4 ≤ j := by omega
           rw [key_out j hk_outside hj]
-          by_cases h_lt : j / 4 < iter.start.val <;>
-            simp only [show j / 4 < iter.start.val + 1 ↔ j / 4 < iter.start.val from by omega,
-              h_lt, ↓reduceIte] at hinv_j ⊢
-          all_goals exact hinv_j
+          have hsuc_iff : j / 4 < iter.start.val + 1 ↔ j / 4 < iter.start.val :=
+            by omega
+          by_cases h_lt : j / 4 < iter.start.val
+          · simp only [hsuc_iff, h_lt, ↓reduceIte] at hinv_j ⊢
+            exact hinv_j
+          · simp only [hsuc_iff, h_lt, ↓reduceIte] at hinv_j ⊢
+            exact hinv_j
       | fail _ => intro h; exact h.elim
       | div => intro h; exact h.elim
     · -- done
@@ -175,7 +178,8 @@ theorem sha256_inner_loop1_spec
             (((arrayU32ToVec state)[wordIdx] >>>
                 UInt32.ofNat ((3 - byteIdx) * 8)) &&& 0xff).toUInt8) : Vector UInt8 32)[j]'hjlt
       rw [Vector.getElem_ofFn (h := hjlt),
-          show (arrayU8ToVec out')[j]'hjlt = toUInt8 (out'.val[j]'(by simpa [out'.property] using hjlt))
+          show (arrayU8ToVec out')[j]'hjlt =
+              toUInt8 (out'.val[j]'(by simpa [out'.property] using hjlt))
             from arrayU8ToVec_getElem out' j hjlt,
           show toUInt8 (out'.val[j]'(by rw [out'.property]; omega)) =
               toUInt8 (out'.val[j]!) by

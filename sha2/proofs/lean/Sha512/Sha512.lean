@@ -21,8 +21,11 @@ private theorem sha512_impl_spec (data : Slice U8) (h : data.length < 2 ^ 61) :
     Extraction.sha512 data
     ⦃ out => arrayU8ToVec out = Impl.sha512 (sliceToByteArray data) ⦄ := by
   unfold Extraction.sha512
-  apply spec_mono (sha2_inner_spec_512 Extraction.consts.H512_512 Impl.H0_512 H512_512_eq data h)
-  intro out hout; rw [hout, Local.sha512_eq_sha2Inner512 _ (by simpa [sliceToByteArray_size] using h)]
+  apply spec_mono
+    (sha2_inner_spec_512 Extraction.consts.H512_512 Impl.H0_512 H512_512_eq data h)
+  intro out hout
+  rw [hout, Local.sha512_eq_sha2Inner512 _
+        (by simpa [sliceToByteArray_size] using h)]
 
 /-- Public top-level spec: the Aeneas-extracted `sha512` returns the
 same 512-bit digest as the FIPS-180-4 bitwise spec `SHS.SHA512.sha512`. -/
