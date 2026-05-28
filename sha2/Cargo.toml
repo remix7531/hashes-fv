@@ -27,6 +27,7 @@ hex-literal = "1"
 
 [features]
 default = ["sha256", "sha256_224", "sha512", "sha512_224", "sha512_256", "sha512_384"]
+# Expose the low-level `compress256` / `compress512` hazmat compression functions.
 compress = []
 sha256 = []
 sha256_224 = []
