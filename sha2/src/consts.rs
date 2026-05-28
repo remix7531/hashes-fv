@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 #[cfg(any(feature = "sha256", feature = "sha256_224"))]
 pub(crate) type State256 = [u32; 8];
 
