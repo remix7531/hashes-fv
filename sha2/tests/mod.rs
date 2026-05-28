@@ -1,5 +1,11 @@
-#[cfg(any(feature = "sha256", feature = "sha256_224", feature = "sha512",
-          feature = "sha512_224", feature = "sha512_256", feature = "sha512_384"))]
+#[cfg(any(
+    feature = "sha256",
+    feature = "sha256_224",
+    feature = "sha512",
+    feature = "sha512_224",
+    feature = "sha512_256",
+    feature = "sha512_384"
+))]
 use hex_literal::hex;
 
 #[cfg(feature = "sha256")]
@@ -191,23 +197,40 @@ mod sha512_256_tests {
 /// Each `<algo>_kat.blb` file is a `blobby`-encoded sequence of test
 /// vectors alternating `input, expected_digest`. We assert that
 /// `sha2::<algo>(input) == expected_digest` for every pair.
-#[cfg(any(feature = "sha256", feature = "sha256_224", feature = "sha512",
-          feature = "sha512_384", feature = "sha512_224", feature = "sha512_256"))]
+#[cfg(any(
+    feature = "sha256",
+    feature = "sha256_224",
+    feature = "sha512",
+    feature = "sha512_384",
+    feature = "sha512_224",
+    feature = "sha512_256"
+))]
 mod kat {
     macro_rules! kat_test {
         ($name:ident, $algo:path, $data:expr) => {
             #[test]
             fn $name() {
-                let blobs = ::blobby::parse_into_vec($data)
-                    .expect(concat!("parse ", stringify!($name), " blobby"));
-                assert!(blobs.len() % 2 == 0,
-                    "expected (input, digest) pairs, got {} blobs", blobs.len());
+                let blobs = ::blobby::parse_into_vec($data).expect(concat!(
+                    "parse ",
+                    stringify!($name),
+                    " blobby"
+                ));
+                assert!(
+                    blobs.len() % 2 == 0,
+                    "expected (input, digest) pairs, got {} blobs",
+                    blobs.len()
+                );
                 for (idx, pair) in blobs.chunks_exact(2).enumerate() {
                     let (input, expected) = (pair[0], pair[1]);
                     let got = $algo(input);
-                    assert_eq!(&got[..], expected,
+                    assert_eq!(
+                        &got[..],
+                        expected,
                         "{} KAT vector {}: input length {}",
-                        stringify!($name), idx, input.len());
+                        stringify!($name),
+                        idx,
+                        input.len()
+                    );
                 }
             }
         };
@@ -226,8 +249,16 @@ mod kat {
     kat_test!(sha384, sha2::sha384, include_bytes!("data/sha384_kat.blb"));
 
     #[cfg(feature = "sha512_224")]
-    kat_test!(sha512_224, sha2::sha512_224, include_bytes!("data/sha512_224_kat.blb"));
+    kat_test!(
+        sha512_224,
+        sha2::sha512_224,
+        include_bytes!("data/sha512_224_kat.blb")
+    );
 
     #[cfg(feature = "sha512_256")]
-    kat_test!(sha512_256, sha2::sha512_256, include_bytes!("data/sha512_256_kat.blb"));
+    kat_test!(
+        sha512_256,
+        sha2::sha512_256,
+        include_bytes!("data/sha512_256_kat.blb")
+    );
 }
