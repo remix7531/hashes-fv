@@ -8,7 +8,7 @@ documentation = "https://docs.rs/sha2-fv"
 readme = "README.md"
 repository = "https://github.com/remix7531/hashes-fv"
 license = "MIT OR Apache-2.0"
-keywords = ["sha2", "hash", "digest"]
+keywords = ["sha2", "hash", "digest", "crypto", "formal-verification"]
 categories = ["cryptography", "no-std"]
 description = """
 Formally verified Pure Rust implementation of the SHA-2 hash function
