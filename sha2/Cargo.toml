@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/remix7531/hashes-fv"
 license = "MIT OR Apache-2.0"
 keywords = ["sha2", "hash", "digest", "crypto", "formal-verification"]
-categories = ["cryptography", "no-std"]
+categories = ["cryptography", "no-std", "no-std::no-alloc"]
 description = """
 Formally verified Pure Rust implementation of the SHA-2 hash function
 family (SHA-224, SHA-256, SHA-384, SHA-512, SHA-512/224, SHA-512/256),
