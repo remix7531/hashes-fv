@@ -1,6 +1,6 @@
 [package]
 name = "sha2-fv"
-version = "0.11.0"
+version = "0.1.0"
 authors = ["RustCrypto Developers", "remix7531 <remix7531@mailbox.org>"]
 edition = "2024"
 rust-version = "1.85"

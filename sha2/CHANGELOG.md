@@ -20,6 +20,25 @@ The version below the next heading is the inherited upstream `RustCrypto/sha2`
 release history, retained for reference. Entries there describe the upstream
 crate, not this fork.
 
+## 0.1.0 (2026-05-28)
+
+Initial release of `sha2-fv`.
+
+### Added
+- Standalone byte-in / byte-out functions `sha256`, `sha224`, `sha512`,
+  `sha384`, `sha512_256`, `sha512_224`, each feature-gated and proved
+  correct in Lean 4 against the FIPS 180-4 bitwise specification.
+- Optional low-level hazmat `compress256` / `compress512` under the
+  `compress` feature.
+- Integration tests against the upstream RustCrypto KAT vectors via
+  the `blobby` format.
+
+### Removed (relative to upstream `RustCrypto/sha2`)
+- The `digest`-trait API and streaming hasher state.
+- All hardware-specific backends (`aarch64-sha2`, `aarch64-sha3`,
+  `x86-shani`, `x86-avx2`, `loongarch64-asm`, `riscv-zknh`,
+  `riscv-zknh-compact`, `wasm32-simd`, unrolled `soft`).
+
 ## 0.11.0 (2026-03-25)
 ### Changed
 - Edition changed to 2024 and MSRV bumped to 1.85 ([#652])
