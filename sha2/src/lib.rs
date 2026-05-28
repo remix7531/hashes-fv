@@ -143,6 +143,7 @@ fn sha512_inner(iv: [u64; 8], data: &[u8]) -> [u8; 64] {
 /// assert_eq!(hash, hex!("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"));
 /// ```
 #[cfg(feature = "sha256")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sha256")))]
 #[must_use]
 pub fn sha256(data: &[u8]) -> [u8; 32] {
     sha256_inner(consts::H256_256, data)
@@ -160,6 +161,7 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 /// assert_eq!(hash, hex!("23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7"));
 /// ```
 #[cfg(feature = "sha256_224")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sha256_224")))]
 #[must_use]
 pub fn sha224(data: &[u8]) -> [u8; 28] {
     let out = sha256_inner(consts::H256_224, data);
@@ -181,6 +183,7 @@ pub fn sha224(data: &[u8]) -> [u8; 28] {
 /// ));
 /// ```
 #[cfg(feature = "sha512")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sha512")))]
 #[must_use]
 pub fn sha512(data: &[u8]) -> [u8; 64] {
     sha512_inner(consts::H512_512, data)
@@ -198,6 +201,7 @@ pub fn sha512(data: &[u8]) -> [u8; 64] {
 /// assert_eq!(hash, hex!("4634270f707b6a54daae7530460842e20e37ed265ceee9a43e8924aa"));
 /// ```
 #[cfg(feature = "sha512_224")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sha512_224")))]
 #[must_use]
 pub fn sha512_224(data: &[u8]) -> [u8; 28] {
     let out = sha512_inner(consts::H512_224, data);
@@ -216,6 +220,7 @@ pub fn sha512_224(data: &[u8]) -> [u8; 28] {
 /// assert_eq!(hash, hex!("53048e2681941ef99b2e29b76b4c7dabe4c2d0c634fc6d46e0e2f13107e7af23"));
 /// ```
 #[cfg(feature = "sha512_256")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sha512_256")))]
 #[must_use]
 pub fn sha512_256(data: &[u8]) -> [u8; 32] {
     let out = sha512_inner(consts::H512_256, data);
@@ -237,6 +242,7 @@ pub fn sha512_256(data: &[u8]) -> [u8; 32] {
 /// ));
 /// ```
 #[cfg(feature = "sha512_384")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sha512_384")))]
 #[must_use]
 pub fn sha384(data: &[u8]) -> [u8; 48] {
     let out = sha512_inner(consts::H512_384, data);
