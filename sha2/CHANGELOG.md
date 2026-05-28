@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## sha2-fv fork
+
+`sha2-fv` forks `RustCrypto/hashes/sha2` at upstream `0.11.0` and replaces
+the `digest`-trait-based API with standalone byte-in / byte-out functions,
+removing every hardware-specific backend and leaving only the portable
+`soft-compact` path. The resulting Rust source is amenable to extraction by
+[Aeneas](https://github.com/AeneasVerif/aeneas) into Lean 4 and proved
+correct against [FIPS 180-4](https://remix7531.com/fips-180-4-lean/). All
+six SHA-2 family members (`sha256`, `sha224`, `sha512`, `sha384`,
+`sha512_256`, `sha512_224`) are verified.
+
+The version below the next heading is the inherited upstream `RustCrypto/sha2`
+release history, retained for reference. Entries there describe the upstream
+crate, not this fork.
+
 ## 0.11.0 (2026-03-25)
 ### Changed
 - Edition changed to 2024 and MSRV bumped to 1.85 ([#652])
